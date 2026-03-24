@@ -1,0 +1,88 @@
+# MortgageGuard API — Cloudflare Workers Configuration
+# ─────────────────────────────────────────────────────
+name = "mortgageguard-api"
+main = "src/index.ts"
+compatibility_date = "2026-03-19"
+compatibility_flags = ["nodejs_compat"]
+
+# ─── Environment Variables ───
+[vars]
+ENVIRONMENT = "production"
+APP_NAME = "MortgageGuard"
+
+# ─── Hyperdrive (Neon PostgreSQL Connection Pool) ───
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<your-hyperdrive-id>"    # Replace after: wrangler hyperdrive create mortgageguard-db --connection-string="postgres://..."
+
+# ─── R2 Object Storage (Loan Documents) ───
+[[r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "mortgageguard-documents"
+
+[[r2_buckets]]
+binding = "EXPORTS"
+bucket_name = "mortgageguard-exports"
+
+# ─── KV Namespace (Rule Cache + Sessions) ───
+[[kv_namespaces]]
+binding = "RULE_CACHE"
+id = "<your-kv-id>"            # Replace after: wrangler kv namespace create RULE_CACHE
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "<your-sessions-kv-id>"   # Replace after: wrangler kv namespace create SESSIONS
+
+# ─── Queues (Async Event Processing) ───
+[[queues.producers]]
+queue = "compliance-events"
+binding = "COMPLIANCE_QUEUE"
+
+[[queues.producers]]
+queue = "audit-events"
+binding = "AUDIT_QUEUE"
+
+[[queues.consumers]]
+queue = "compliance-events"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[[queues.consumers]]
+queue = "audit-events"
+max_batch_size = 25
+max_batch_timeout = 10
+
+# ─── Development Overrides ───
+[env.dev]
+name = "mortgageguard-api-dev"
+[env.dev.vars]
+ENVIRONMENT = "development"
+
+# Use local Neon branch for dev
+[[env.dev.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<your-dev-hyperdrive-id>"
+
+# Dev KV namespaces (preview)
+[[env.dev.kv_namespaces]]
+binding = "RULE_CACHE"
+id = "<your-dev-kv-id>"
+
+[[env.dev.kv_namespaces]]
+binding = "SESSIONS"
+id = "<your-dev-sessions-kv-id>"
+
+# Dev R2 buckets
+[[env.dev.r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "mortgageguard-documents-dev"
+
+[[env.dev.r2_buckets]]
+binding = "EXPORTS"
+bucket_name = "mortgageguard-exports-dev"
+
+# ─── Staging Overrides ───
+[env.staging]
+name = "mortgageguard-api-staging"
+[env.staging.vars]
+ENVIRONMENT = "staging"

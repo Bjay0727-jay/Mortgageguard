@@ -1,0 +1,24 @@
+{
+  "name": "mortgageguard",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "deploy": "turbo deploy",
+    "db:generate": "cd apps/api && drizzle-kit generate",
+    "db:migrate": "cd apps/api && drizzle-kit migrate",
+    "db:seed": "cd apps/api && npx tsx src/db/seeds/index.ts",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
