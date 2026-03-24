@@ -38,7 +38,7 @@ describe("authMiddleware", () => {
     const app = createTestApp();
     const res = await app.request("/protected/info", {}, env);
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.error).toContain("authorization");
   });
 
@@ -84,7 +84,7 @@ describe("authMiddleware", () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.userId).toBe("user-123");
     expect(body.role).toBe("compliance_officer");
   });
@@ -125,7 +125,7 @@ describe("requireRole", () => {
       env,
     );
     expect(res.status).toBe(403);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.error).toContain("permissions");
   });
 });

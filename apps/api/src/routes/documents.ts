@@ -11,8 +11,8 @@ documentRoutes.post("/upload/:loanId", async (c) => {
   if (!loan) return c.json({ error: "Loan not found" }, 404);
 
   const formData = await c.req.formData();
-  const file = formData.get("file") as File;
-  const documentType = formData.get("documentType") as string;
+  const file = formData.get("file") as unknown as File;
+  const documentType = formData.get("documentType") as unknown as string;
   if (!file || !documentType) return c.json({ error: "file and documentType required" }, 400);
 
   const key = `${user.companyId}/${loanId}/${documentType}/${Date.now()}-${file.name}`;

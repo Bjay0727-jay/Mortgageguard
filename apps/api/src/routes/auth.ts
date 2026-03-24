@@ -70,7 +70,7 @@ authRoutes.post("/refresh", async (c) => {
     const stored = await c.env.SESSIONS.get(`refresh:${payload.sub}`);
     if (stored !== refreshToken) return c.json({ error: "Session expired" }, 401);
     const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
-    const [user] = await sql`SELECT * FROM users WHERE id = ${payload.sub} AND is_active = true`;
+    const [user] = await sql`SELECT * FROM users WHERE id = ${payload.sub as string} AND is_active = true`;
     if (!user) return c.json({ error: "User not found" }, 401);
     const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);
     return c.json({ token });

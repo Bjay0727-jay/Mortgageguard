@@ -81,7 +81,7 @@ export async function resolveStateRules(
     { expirationTtl: CACHE_TTL_SECONDS }
   );
 
-  return rules as ResolvedRule[];
+  return rules as unknown as ResolvedRule[];
 }
 
 // ─── Checklist Generator ───

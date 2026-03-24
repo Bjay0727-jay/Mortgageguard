@@ -28,7 +28,7 @@ describe("Health endpoints", () => {
     const res = await app.request("/health", {}, env);
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.status).toBe("ok");
     expect(body.service).toBe("mortgageguard-api");
     expect(body.timestamp).toBeTruthy();
@@ -39,7 +39,7 @@ describe("Health endpoints", () => {
     const res = await app.request("/unknown/path", {}, env);
 
     expect(res.status).toBe(404);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.error).toBe("Not found");
     expect(body.path).toBe("/unknown/path");
   });

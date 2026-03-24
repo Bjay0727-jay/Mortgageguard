@@ -45,7 +45,7 @@ programRoutes.post("/:id/upload", async (c) => {
   const [program] = await sql`SELECT id FROM compliance_programs WHERE id = ${id} AND company_id = ${user.companyId}`;
   if (!program) return c.json({ error: "Program not found" }, 404);
   const formData = await c.req.formData();
-  const file = formData.get("file") as File;
+  const file = formData.get("file") as unknown as File;
   if (!file) return c.json({ error: "file required" }, 400);
   const key = `${user.companyId}/programs/${id}/${Date.now()}-${file.name}`;
   await c.env.DOCUMENTS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
