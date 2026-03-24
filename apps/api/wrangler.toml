@@ -13,7 +13,7 @@ APP_NAME = "MortgageGuard"
 # ─── Hyperdrive (Neon PostgreSQL Connection Pool) ───
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "<your-hyperdrive-id>"    # Replace after: wrangler hyperdrive create mortgageguard-db --connection-string="postgres://..."
+id = "placeholder-create-via-wrangler-hyperdrive-create"  # wrangler hyperdrive create mortgageguard-db --connection-string="postgres://..."
 
 # ─── R2 Object Storage (Loan Documents) ───
 [[r2_buckets]]
@@ -27,11 +27,11 @@ bucket_name = "mortgageguard-exports"
 # ─── KV Namespace (Rule Cache + Sessions) ───
 [[kv_namespaces]]
 binding = "RULE_CACHE"
-id = "<your-kv-id>"            # Replace after: wrangler kv namespace create RULE_CACHE
+id = "2c39e1feab3447f0973e5ac4765eec83"
 
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "<your-sessions-kv-id>"   # Replace after: wrangler kv namespace create SESSIONS
+id = "414888ff6fc549858b4e464604755137"
 
 # ─── Queues (Async Event Processing) ───
 [[queues.producers]]
@@ -61,16 +61,16 @@ ENVIRONMENT = "development"
 # Use local Neon branch for dev
 [[env.dev.hyperdrive]]
 binding = "HYPERDRIVE"
-id = "<your-dev-hyperdrive-id>"
+id = "placeholder-create-via-wrangler-hyperdrive-create"
 
 # Dev KV namespaces (preview)
 [[env.dev.kv_namespaces]]
 binding = "RULE_CACHE"
-id = "<your-dev-kv-id>"
+id = "2c39e1feab3447f0973e5ac4765eec83"
 
 [[env.dev.kv_namespaces]]
 binding = "SESSIONS"
-id = "<your-dev-sessions-kv-id>"
+id = "414888ff6fc549858b4e464604755137"
 
 # Dev R2 buckets
 [[env.dev.r2_buckets]]

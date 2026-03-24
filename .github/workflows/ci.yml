@@ -1,4 +1,5 @@
-name: Deploy MortgageGuard
+name: CI/CD
+
 on:
   push:
     branches: [main]
@@ -6,28 +7,91 @@ on:
     branches: [main]
 
 jobs:
-  deploy-api:
+  # ─── Test & Typecheck (runs on every push/PR) ───
+  test:
+    name: Test & Typecheck
     runs-on: ubuntu-latest
-    name: Deploy API Worker
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
+
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
-      - run: pnpm install
-      - name: Type check API
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck API
         run: cd apps/api && npx tsc --noEmit
-      - name: Type check Web
+
+      - name: Typecheck Web
         run: cd apps/web && npx tsc --noEmit
+
+      - name: Test API
+        run: cd apps/api && npx vitest run
+
+      - name: Test Shared
+        run: cd packages/shared && npx vitest run
+
+  # ─── Deploy API (only on main push, after tests pass) ───
+  deploy-api:
+    name: Deploy API Worker
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
       - name: Deploy to Cloudflare
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
+          command: deploy
+
+  # ─── Deploy Web (only on main push, after tests pass) ───
+  deploy-web:
+    name: Deploy Web
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Web
+        run: cd apps/web && pnpm build
+
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
           command: deploy
