@@ -13,7 +13,7 @@ APP_NAME = "MortgageGuard"
 # ─── Hyperdrive (Neon PostgreSQL Connection Pool) ───
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "placeholder-create-via-wrangler-hyperdrive-create"  # wrangler hyperdrive create mortgageguard-db --connection-string="postgres://..."
+id = "7a94b2e0a3bd4e4cb1dd88af61e94279"
 
 # ─── R2 Object Storage (Loan Documents) ───
 [[r2_buckets]]
@@ -61,7 +61,7 @@ ENVIRONMENT = "development"
 # Use local Neon branch for dev
 [[env.dev.hyperdrive]]
 binding = "HYPERDRIVE"
-id = "placeholder-create-via-wrangler-hyperdrive-create"
+id = "7a94b2e0a3bd4e4cb1dd88af61e94279"
 
 # Dev KV namespaces (preview)
 [[env.dev.kv_namespaces]]
