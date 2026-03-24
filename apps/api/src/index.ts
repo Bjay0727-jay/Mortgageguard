@@ -10,6 +10,7 @@ import { prettyJSON } from "hono/pretty-json";
 
 import type { Env, ComplianceEvent, AuditEvent } from "./env";
 import { authMiddleware } from "./middleware/auth";
+import { rateLimit } from "./middleware/rate-limit";
 import { loanRoutes } from "./routes/loans";
 import { complianceRoutes } from "./routes/compliance";
 import { documentRoutes } from "./routes/documents";
@@ -19,6 +20,7 @@ import { integrationRoutes } from "./routes/integrations";
 import { authRoutes } from "./routes/auth";
 import { processComplianceEvent } from "./services/compliance-engine";
 import { processAuditEvent } from "./services/audit-trail";
+import { AppError } from "./lib/errors";
 
 // ─── App Setup ───
 const app = new Hono<{ Bindings: Env }>();
@@ -46,7 +48,8 @@ app.get("/ready", async (c) => {
   }
 });
 
-// ─── Public Routes (no auth) ───
+// ─── Public Routes (no auth, rate-limited) ───
+app.use("/api/v1/auth/*", rateLimit({ windowMs: 60_000, maxRequests: 20, keyPrefix: "rl:auth" }));
 app.route("/api/v1/auth", authRoutes);
 
 // ─── Protected Routes ───
@@ -63,6 +66,14 @@ app.notFound((c) => c.json({ error: "Not found", path: c.req.path }, 404));
 
 // ─── Error Handler ───
 app.onError((err, c) => {
+  if (err instanceof AppError) {
+    return c.json({
+      error: err.message,
+      code: err.code,
+      requestId: c.req.header("cf-ray") || "unknown",
+    }, err.statusCode as any);
+  }
+
   console.error(`[ERROR] ${err.message}`, err.stack);
   return c.json({
     error: c.env.ENVIRONMENT === "production" ? "Internal server error" : err.message,

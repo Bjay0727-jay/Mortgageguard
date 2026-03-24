@@ -32,9 +32,23 @@ documentRoutes.post("/upload/:loanId", async (c) => {
 documentRoutes.get("/:loanId", async (c) => {
   const user = c.get("user");
   const loanId = c.req.param("loanId");
+  const limit = Math.min(parseInt(c.req.query("limit") || "50"), 100);
+  const offset = parseInt(c.req.query("offset") || "0");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
-  const docs = await sql`SELECT * FROM loan_documents WHERE loan_id = ${loanId} ORDER BY uploaded_at DESC`;
-  return c.json({ documents: docs });
+
+  // Verify loan belongs to user's company
+  const [loan] = await sql`SELECT id FROM loans WHERE id = ${loanId} AND company_id = ${user.companyId}`;
+  if (!loan) return c.json({ error: "Loan not found" }, 404);
+
+  const docs = await sql`
+    SELECT * FROM loan_documents
+    WHERE loan_id = ${loanId}
+    ORDER BY uploaded_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+  const [{ total }] = await sql`SELECT COUNT(*) as total FROM loan_documents WHERE loan_id = ${loanId}`;
+
+  return c.json({ documents: docs, pagination: { total: Number(total), limit, offset } });
 });
 
 documentRoutes.get("/:loanId/:docId/download", async (c) => {

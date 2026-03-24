@@ -32,6 +32,10 @@ const createLoanSchema = z.object({
   lenderNmlsId: z.string().optional(),
 });
 
+const advanceStageSchema = z.object({
+  targetStage: z.enum(["application", "processing", "underwriting", "closing", "post_close", "denied", "withdrawn"]),
+});
+
 // ─── GET /api/v1/loans — List loans for company ───
 loanRoutes.get("/", async (c) => {
   const user = c.get("user");
@@ -210,10 +214,10 @@ loanRoutes.get("/:id/score", async (c) => {
 });
 
 // ─── POST /api/v1/loans/:id/advance — Advance pipeline stage ───
-loanRoutes.post("/:id/advance", async (c) => {
+loanRoutes.post("/:id/advance", zValidator("json", advanceStageSchema), async (c) => {
   const user = c.get("user");
   const loanId = c.req.param("id");
-  const { targetStage } = await c.req.json();
+  const { targetStage } = c.req.valid("json");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
 
   const [loan] = await sql`
@@ -264,7 +268,13 @@ loanRoutes.post("/:id/advance", async (c) => {
 loanRoutes.get("/:id/timeline", async (c) => {
   const user = c.get("user");
   const loanId = c.req.param("id");
+  const limit = Math.min(parseInt(c.req.query("limit") || "50"), 100);
+  const offset = parseInt(c.req.query("offset") || "0");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
+
+  // Verify loan belongs to user's company
+  const [loan] = await sql`SELECT id FROM loans WHERE id = ${loanId} AND company_id = ${user.companyId}`;
+  if (!loan) return c.json({ error: "Loan not found" }, 404);
 
   const events = await sql`
     SELECT lt.*, u.name as performed_by_name
@@ -272,7 +282,10 @@ loanRoutes.get("/:id/timeline", async (c) => {
     LEFT JOIN users u ON u.id = lt.performed_by
     WHERE lt.loan_id = ${loanId}
     ORDER BY lt.occurred_at DESC
+    LIMIT ${limit} OFFSET ${offset}
   `;
 
-  return c.json({ events });
+  const [{ total }] = await sql`SELECT COUNT(*) as total FROM loan_timeline WHERE loan_id = ${loanId}`;
+
+  return c.json({ events, pagination: { total: Number(total), limit, offset } });
 });
