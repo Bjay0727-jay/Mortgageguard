@@ -69,8 +69,13 @@ jobs:
 
       - name: Ensure Hyperdrive config exists
         run: |
+          # Fail fast if token is missing
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN secret is not set"
+            exit 1
+          fi
           # Check if Hyperdrive already exists, create if not
-          EXISTING=$(npx wrangler hyperdrive list 2>/dev/null | grep mortgageguard-db || true)
+          EXISTING=$(npx wrangler hyperdrive list | grep mortgageguard-db || true)
           if [ -z "$EXISTING" ]; then
             echo "Creating Hyperdrive config..."
             npx wrangler hyperdrive create mortgageguard-db \
@@ -79,7 +84,7 @@ jobs:
             echo "Hyperdrive config already exists"
           fi
           # Get the Hyperdrive ID and inject into wrangler.toml
-          HD_ID=$(npx wrangler hyperdrive list 2>/dev/null | grep -oP 'id:\s*\K[a-f0-9-]+' | head -1)
+          HD_ID=$(npx wrangler hyperdrive list | grep -oP 'id:\s*\K[a-f0-9-]+' | head -1)
           if [ -n "$HD_ID" ]; then
             echo "Hyperdrive ID: $HD_ID"
             sed -i "s/placeholder-create-via-wrangler-hyperdrive-create/$HD_ID/g" apps/api/wrangler.toml
