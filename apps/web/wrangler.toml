@@ -13,3 +13,7 @@ binding = "ASSETS"
 [[services]]
 binding = "WORKER_SELF_REFERENCE"
 service = "mortgageguard-web"
+
+# Enable logging to diagnose runtime errors
+[observability]
+enabled = true
