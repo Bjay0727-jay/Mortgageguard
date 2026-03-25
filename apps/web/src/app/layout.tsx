@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: "MortgageGuard — Compliance CRM",
   description:
     "Multi-state mortgage compliance CRM for brokers, lenders, and servicers.",
+  icons: { icon: "/favicon.svg" },
 };
 
 export default function RootLayout({
