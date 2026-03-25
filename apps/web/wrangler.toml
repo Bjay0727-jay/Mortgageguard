@@ -1,10 +1,15 @@
-# MortgageGuard Web — Next.js on Cloudflare Workers
+# MortgageGuard Web — Next.js on Cloudflare Workers (via OpenNext)
 name = "mortgageguard-web"
 main = ".open-next/worker.js"
 compatibility_date = "2026-03-19"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 # Assets served from Workers
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
+
+# Self-reference service binding (required by OpenNext for ISR/revalidation)
+[[services]]
+binding = "WORKER_SELF_REFERENCE"
+service = "mortgageguard-web"
