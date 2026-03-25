@@ -35,11 +35,11 @@ jobs:
       - name: Test Shared
         run: cd packages/shared && npx vitest run
 
-  # ─── Database Migration (only on main push) ───
+  # ─── Database Migration (only on main push, requires DATABASE_URL) ───
   migrate:
     name: Database Migration
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.DATABASE_URL != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,11 +49,11 @@ jobs:
         env:
           PGCONNECT_TIMEOUT: 30
 
-  # ─── Deploy API (only on main push, after tests pass) ───
+  # ─── Deploy API (only on main push, requires secrets) ───
   deploy-api:
     name: Deploy API Worker
-    needs: [test, migrate]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.CLOUDFLARE_API_TOKEN != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,11 +110,11 @@ jobs:
           workingDirectory: apps/api
           command: deploy
 
-  # ─── Deploy Web (only on main push, after tests pass) ───
+  # ─── Deploy Web (only on main push, requires secrets) ───
   deploy-web:
     name: Deploy Web
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.CLOUDFLARE_API_TOKEN != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
