@@ -84,10 +84,30 @@ jobs:
       - run: pnpm install --frozen-lockfile
         if: steps.check-secrets.outputs.has_secrets == 'true'
 
-      - name: Ensure Hyperdrive config exists
+      - name: Ensure Cloudflare resources exist
         if: steps.check-secrets.outputs.has_secrets == 'true'
         run: |
-          # Check if Hyperdrive already exists, create if not
+          # Create queues if they don't exist
+          for QUEUE in compliance-events audit-events; do
+            if ! npx wrangler queues list | grep -q "$QUEUE"; then
+              echo "Creating queue: $QUEUE"
+              npx wrangler queues create "$QUEUE"
+            else
+              echo "Queue $QUEUE already exists"
+            fi
+          done
+
+          # Create R2 buckets if they don't exist
+          for BUCKET in mortgageguard-documents mortgageguard-exports; do
+            if ! npx wrangler r2 bucket list | grep -q "$BUCKET"; then
+              echo "Creating R2 bucket: $BUCKET"
+              npx wrangler r2 bucket create "$BUCKET"
+            else
+              echo "R2 bucket $BUCKET already exists"
+            fi
+          done
+
+          # Ensure Hyperdrive config exists
           EXISTING=$(npx wrangler hyperdrive list | grep mortgageguard-db || true)
           if [ -z "$EXISTING" ]; then
             echo "Creating Hyperdrive config..."
@@ -158,17 +178,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
         if: steps.check-secrets.outputs.has_secrets == 'true'
 
-      - name: Build Web
+      - name: Build and Deploy Web
         if: steps.check-secrets.outputs.has_secrets == 'true'
-        run: cd apps/web && pnpm build
+        run: cd apps/web && pnpm run deploy
         env:
           NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
-
-      - name: Deploy to Cloudflare
-        if: steps.check-secrets.outputs.has_secrets == 'true'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/web
-          command: deploy
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
