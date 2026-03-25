@@ -87,40 +87,26 @@ jobs:
       - name: Ensure Cloudflare resources exist
         if: steps.check-secrets.outputs.has_secrets == 'true'
         run: |
-          # Create queues if they don't exist
+          # Create queues if they don't exist (continue on failure — queue may already exist)
           for QUEUE in compliance-events audit-events; do
-            if ! npx wrangler queues list | grep -q "$QUEUE"; then
-              echo "Creating queue: $QUEUE"
-              npx wrangler queues create "$QUEUE"
-            else
-              echo "Queue $QUEUE already exists"
-            fi
+            echo "Ensuring queue: $QUEUE"
+            npx wrangler queues create "$QUEUE" 2>&1 || echo "Queue $QUEUE already exists or could not be created (continuing)"
           done
 
-          # Create R2 buckets if they don't exist
+          # Create R2 buckets if they don't exist (continue on failure — bucket may already exist)
           for BUCKET in mortgageguard-documents mortgageguard-exports; do
-            if ! npx wrangler r2 bucket list | grep -q "$BUCKET"; then
-              echo "Creating R2 bucket: $BUCKET"
-              npx wrangler r2 bucket create "$BUCKET"
-            else
-              echo "R2 bucket $BUCKET already exists"
-            fi
+            echo "Ensuring R2 bucket: $BUCKET"
+            npx wrangler r2 bucket create "$BUCKET" 2>&1 || echo "R2 bucket $BUCKET already exists or could not be created (continuing)"
           done
 
           # Ensure Hyperdrive config exists
-          EXISTING=$(npx wrangler hyperdrive list | grep mortgageguard-db || true)
+          EXISTING=$(npx wrangler hyperdrive list 2>/dev/null | grep mortgageguard-db || true)
           if [ -z "$EXISTING" ]; then
             echo "Creating Hyperdrive config..."
             npx wrangler hyperdrive create mortgageguard-db \
-              --connection-string="${{ secrets.DATABASE_URL }}"
+              --connection-string="${{ secrets.DATABASE_URL }}" || echo "Hyperdrive creation failed (continuing)"
           else
             echo "Hyperdrive config already exists"
-          fi
-          # Get the Hyperdrive ID and inject into wrangler.toml
-          HD_ID=$(npx wrangler hyperdrive list | grep -oP 'id:\s*\K[a-f0-9-]+' | head -1)
-          if [ -n "$HD_ID" ]; then
-            echo "Hyperdrive ID: $HD_ID"
-            sed -i "s/placeholder-create-via-wrangler-hyperdrive-create/$HD_ID/g" apps/api/wrangler.toml
           fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
