@@ -22,7 +22,7 @@ export interface Env {
   ENVIRONMENT: string;
   APP_NAME: string;
   JWT_SECRET: string;
-  RESEND_API_KEY: string;
+  RESEND_API_KEY?: string;
 }
 
 // ─── Queue Event Types ───
