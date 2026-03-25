@@ -90,7 +90,7 @@ jobs:
           # Create queues if they don't exist (ignore "already exists" errors)
           for QUEUE in compliance-events audit-events; do
             echo "Ensuring queue: $QUEUE"
-            OUTPUT=$(npx wrangler queues create "$QUEUE" 2>&1) && echo "Created $QUEUE" || {
+            OUTPUT=$(npx wrangler queues create "$QUEUE" --message-retention-period-secs=86400 2>&1) && echo "Created $QUEUE" || {
               if echo "$OUTPUT" | grep -qi "already exists"; then
                 echo "Queue $QUEUE already exists"
               else
