@@ -87,16 +87,30 @@ jobs:
       - name: Ensure Cloudflare resources exist
         if: steps.check-secrets.outputs.has_secrets == 'true'
         run: |
-          # Create queues if they don't exist (continue on failure — queue may already exist)
+          # Create queues if they don't exist (ignore "already exists" errors)
           for QUEUE in compliance-events audit-events; do
             echo "Ensuring queue: $QUEUE"
-            npx wrangler queues create "$QUEUE" 2>&1 || echo "Queue $QUEUE already exists or could not be created (continuing)"
+            OUTPUT=$(npx wrangler queues create "$QUEUE" 2>&1) && echo "Created $QUEUE" || {
+              if echo "$OUTPUT" | grep -qi "already exists"; then
+                echo "Queue $QUEUE already exists"
+              else
+                echo "::error::Failed to create queue $QUEUE: $OUTPUT"
+                exit 1
+              fi
+            }
           done
 
-          # Create R2 buckets if they don't exist (continue on failure — bucket may already exist)
+          # Create R2 buckets if they don't exist (ignore "already exists" errors)
           for BUCKET in mortgageguard-documents mortgageguard-exports; do
             echo "Ensuring R2 bucket: $BUCKET"
-            npx wrangler r2 bucket create "$BUCKET" 2>&1 || echo "R2 bucket $BUCKET already exists or could not be created (continuing)"
+            OUTPUT=$(npx wrangler r2 bucket create "$BUCKET" 2>&1) && echo "Created $BUCKET" || {
+              if echo "$OUTPUT" | grep -qi "already exists"; then
+                echo "R2 bucket $BUCKET already exists"
+              else
+                echo "::error::Failed to create R2 bucket $BUCKET: $OUTPUT"
+                exit 1
+              fi
+            }
           done
 
           # Ensure Hyperdrive config exists
@@ -104,7 +118,7 @@ jobs:
           if [ -z "$EXISTING" ]; then
             echo "Creating Hyperdrive config..."
             npx wrangler hyperdrive create mortgageguard-db \
-              --connection-string="${{ secrets.DATABASE_URL }}" || echo "Hyperdrive creation failed (continuing)"
+              --connection-string="${{ secrets.DATABASE_URL }}"
           else
             echo "Hyperdrive config already exists"
           fi
@@ -126,6 +140,7 @@ jobs:
         if: steps.check-secrets.outputs.has_secrets == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
+          wranglerVersion: "4"
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
