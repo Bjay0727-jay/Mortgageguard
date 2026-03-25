@@ -91,7 +91,7 @@ jobs:
           for QUEUE in compliance-events audit-events; do
             echo "Ensuring queue: $QUEUE"
             OUTPUT=$(npx wrangler queues create "$QUEUE" --message-retention-period-secs=86400 2>&1) && echo "Created $QUEUE" || {
-              if echo "$OUTPUT" | grep -qi "already exists"; then
+              if echo "$OUTPUT" | grep -qiE "already exists|already taken"; then
                 echo "Queue $QUEUE already exists"
               else
                 echo "::error::Failed to create queue $QUEUE: $OUTPUT"
@@ -104,7 +104,7 @@ jobs:
           for BUCKET in mortgageguard-documents mortgageguard-exports; do
             echo "Ensuring R2 bucket: $BUCKET"
             OUTPUT=$(npx wrangler r2 bucket create "$BUCKET" 2>&1) && echo "Created $BUCKET" || {
-              if echo "$OUTPUT" | grep -qi "already exists"; then
+              if echo "$OUTPUT" | grep -qiE "already exists|already taken"; then
                 echo "R2 bucket $BUCKET already exists"
               else
                 echo "::error::Failed to create R2 bucket $BUCKET: $OUTPUT"
