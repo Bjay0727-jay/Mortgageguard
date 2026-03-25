@@ -140,6 +140,7 @@ jobs:
         if: steps.check-secrets.outputs.has_secrets == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
+          packageManager: pnpm
           wranglerVersion: "4"
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
