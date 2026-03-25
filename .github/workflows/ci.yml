@@ -35,45 +35,58 @@ jobs:
       - name: Test Shared
         run: cd packages/shared && npx vitest run
 
-  # ─── Database Migration (only on main push, requires DATABASE_URL) ───
+  # ─── Database Migration (only on main push) ───
   migrate:
     name: Database Migration
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.DATABASE_URL != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Run schema migration
-        run: psql "${{ secrets.DATABASE_URL }}" -f scripts/db-setup.sql
+        if: env.DATABASE_URL != ''
+        run: psql "$DATABASE_URL" -f scripts/db-setup.sql
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PGCONNECT_TIMEOUT: 30
 
-  # ─── Deploy API (only on main push, requires secrets) ───
+  # ─── Deploy API (only on main push, after tests pass) ───
   deploy-api:
     name: Deploy API Worker
     needs: [test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.CLOUDFLARE_API_TOKEN != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for required secrets
+        id: check-secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLOUDFLARE_API_TOKEN not set, skipping deploy"
+          else
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - uses: pnpm/action-setup@v4
+        if: steps.check-secrets.outputs.has_secrets == 'true'
 
       - uses: actions/setup-node@v4
+        if: steps.check-secrets.outputs.has_secrets == 'true'
         with:
           node-version: 20
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+        if: steps.check-secrets.outputs.has_secrets == 'true'
 
       - name: Ensure Hyperdrive config exists
+        if: steps.check-secrets.outputs.has_secrets == 'true'
         run: |
-          # Fail fast if token is missing
-          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "::error::CLOUDFLARE_API_TOKEN secret is not set"
-            exit 1
-          fi
           # Check if Hyperdrive already exists, create if not
           EXISTING=$(npx wrangler hyperdrive list | grep mortgageguard-db || true)
           if [ -z "$EXISTING" ]; then
@@ -94,6 +107,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Set Worker secrets
+        if: steps.check-secrets.outputs.has_secrets == 'true'
         run: |
           echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET 2>/dev/null || true
           echo "${{ secrets.RESEND_API_KEY }}" | npx wrangler secret put RESEND_API_KEY 2>/dev/null || true
@@ -103,6 +117,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy to Cloudflare
+        if: steps.check-secrets.outputs.has_secrets == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -110,30 +125,47 @@ jobs:
           workingDirectory: apps/api
           command: deploy
 
-  # ─── Deploy Web (only on main push, requires secrets) ───
+  # ─── Deploy Web (only on main push, after tests pass) ───
   deploy-web:
     name: Deploy Web
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.CLOUDFLARE_API_TOKEN != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for required secrets
+        id: check-secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLOUDFLARE_API_TOKEN not set, skipping deploy"
+          else
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - uses: pnpm/action-setup@v4
+        if: steps.check-secrets.outputs.has_secrets == 'true'
 
       - uses: actions/setup-node@v4
+        if: steps.check-secrets.outputs.has_secrets == 'true'
         with:
           node-version: 20
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+        if: steps.check-secrets.outputs.has_secrets == 'true'
 
       - name: Build Web
+        if: steps.check-secrets.outputs.has_secrets == 'true'
         run: cd apps/web && pnpm build
         env:
           NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
 
       - name: Deploy to Cloudflare
+        if: steps.check-secrets.outputs.has_secrets == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
