@@ -149,7 +149,7 @@ export default function RegisterPage() {
               value={form.companyId}
               onChange={(e) => update("companyId", e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              placeholder="UUID of your company"
+              placeholder="Ask your company admin for this ID"
             />
           </div>
 
