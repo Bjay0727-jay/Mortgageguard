@@ -86,6 +86,7 @@ export default function RegisterPage() {
             <input
               type="text"
               required
+              autoComplete="name"
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
@@ -99,6 +100,7 @@ export default function RegisterPage() {
             <input
               type="email"
               required
+              autoComplete="email"
               value={form.email}
               onChange={(e) => update("email", e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
