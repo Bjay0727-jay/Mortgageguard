@@ -10,7 +10,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>();
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(8) });
 const registerSchema = z.object({
   email: z.string().email(), password: z.string().min(8), name: z.string().min(1).max(255),
-  companyId: z.string().uuid(), nmlsId: z.string().optional(),
+  companyId: z.string().min(1), nmlsId: z.string().optional(),
   role: z.enum(["company_admin","qualifying_individual","loan_originator","processor","compliance_officer","read_only"]).default("loan_originator"),
 });
 
