@@ -40,10 +40,13 @@ integrationRoutes.post("/connect", requireRole("company_admin"), zValidator("jso
 
   const configs = await c.env.RULE_CACHE.get(`integrations:${user.companyId}`, "json") as any[] || [];
   const existing = configs.findIndex((c: any) => c.systemId === body.systemId);
-  const config = { systemId: body.systemId, name: system.name, type: system.type, connectedAt: new Date().toISOString(), status: "connected", lastSync: null, clientId: body.clientId, clientSecret: body.clientSecret, apiKey: body.apiKey, instanceUrl: body.instanceUrl, webhookEnabled: body.webhookEnabled };
+  // Generate a webhook secret for HMAC signature verification
+  const webhookSecretBytes = crypto.getRandomValues(new Uint8Array(32));
+  const webhookSecret = Array.from(webhookSecretBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  const config = { systemId: body.systemId, name: system.name, type: system.type, connectedAt: new Date().toISOString(), status: "connected", lastSync: null, clientId: body.clientId, clientSecret: body.clientSecret, apiKey: body.apiKey, instanceUrl: body.instanceUrl, webhookEnabled: body.webhookEnabled, webhookSecret };
   if (existing >= 0) configs[existing] = config; else configs.push(config);
   await c.env.RULE_CACHE.put(`integrations:${user.companyId}`, JSON.stringify(configs));
-  return c.json({ success: true, integration: { ...config, clientSecret: undefined, apiKey: undefined } }, 201);
+  return c.json({ success: true, integration: { ...config, clientSecret: undefined, apiKey: undefined, webhookSecret: body.webhookEnabled ? config.webhookSecret : undefined } }, 201);
 });
 
 integrationRoutes.post("/sync/:systemId", requireRole("company_admin", "compliance_officer"), async (c) => {
@@ -67,13 +70,39 @@ integrationRoutes.delete("/:systemId", requireRole("company_admin"), async (c) =
   return c.json({ success: true });
 });
 
-// Webhook endpoint for LOS callbacks
+// Webhook endpoint for LOS callbacks — requires HMAC-SHA256 signature
 integrationRoutes.post("/webhook/:systemId", async (c) => {
   const systemId = c.req.param("systemId");
-  const payload = await c.req.json();
-  // In production: validate webhook signature, map LOS events to compliance events
+  const signature = c.req.header("X-Webhook-Signature");
+  if (!signature) return c.json({ error: "Missing X-Webhook-Signature header" }, 401);
+
+  const rawBody = await c.req.text();
+
+  // Find the integration config across all companies to get the webhook secret
+  // In production, use a dedicated KV key for webhook secrets keyed by systemId
+  const allKeys = await c.env.RULE_CACHE.list({ prefix: "integrations:" });
+  let webhookSecret: string | null = null;
+  let companyId: string | null = null;
+  for (const key of allKeys.keys) {
+    const configs = await c.env.RULE_CACHE.get(key.name, "json") as any[] || [];
+    const config = configs.find((cfg: any) => cfg.systemId === systemId && cfg.webhookSecret);
+    if (config) {
+      webhookSecret = config.webhookSecret;
+      companyId = key.name.replace("integrations:", "");
+      break;
+    }
+  }
+  if (!webhookSecret) return c.json({ error: "Unknown integration or no webhook secret" }, 401);
+
+  // Verify HMAC-SHA256 signature
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(webhookSecret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const sigBytes = new Uint8Array(signature.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+  const valid = await crypto.subtle.verify("HMAC", key, sigBytes, encoder.encode(rawBody));
+  if (!valid) return c.json({ error: "Invalid webhook signature" }, 401);
+
+  const payload = JSON.parse(rawBody);
   console.log(`[WEBHOOK] ${systemId}:`, JSON.stringify(payload).substring(0, 200));
-  // Queue for async processing
-  await c.env.COMPLIANCE_QUEUE.send({ type: "integration.webhook", loanId: payload.loanId || "unknown", companyId: payload.companyId || "unknown", payload: { systemId, ...payload }, timestamp: new Date().toISOString() });
+  await c.env.COMPLIANCE_QUEUE.send({ type: "integration.webhook", loanId: payload.loanId || "unknown", companyId: companyId || "unknown", payload: { systemId, ...payload }, timestamp: new Date().toISOString() });
   return c.json({ received: true });
 });

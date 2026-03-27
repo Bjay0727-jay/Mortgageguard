@@ -27,12 +27,17 @@ const app = new Hono<{ Bindings: Env }>();
 
 // ─── Global Middleware ───
 app.use("*", cors({
-  origin: [
-    "https://mortgageguard.com",
-    "https://app.mortgageguard.com",
-    "https://mortgageguard-web.stanley-riley.workers.dev",
-    "http://localhost:3000",
-  ],
+  origin: (origin, c) => {
+    const allowed = [
+      "https://mortgageguard.com",
+      "https://app.mortgageguard.com",
+      "https://mortgageguard-web.stanley-riley.workers.dev",
+    ];
+    if (c.env.ENVIRONMENT !== "production") {
+      allowed.push("http://localhost:3000");
+    }
+    return allowed.includes(origin) ? origin : null;
+  },
   credentials: true,
 }));
 app.use("*", logger());

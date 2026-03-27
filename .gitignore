@@ -11,3 +11,4 @@ dist/
 .open-next/
 next-env.d.ts
 tsconfig.tsbuildinfo
+*.tar.gz
