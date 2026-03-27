@@ -99,7 +99,7 @@ loanRoutes.post("/", zValidator("json", createLoanSchema), async (c) => {
       interest_rate, loan_purpose, loan_product, loan_type,
       loan_term, loan_amount, lien_position, occupancy_type,
       lender_name, lender_nmls_id,
-      originator_nmls_id, application_date, status
+      originator_nmls_id, application_date, status, is_deleted
     ) VALUES (
       ${user.companyId}, ${user.userId}, ${body.loanNumber},
       ${body.borrowerLastName}, ${body.borrowerFirstName},
@@ -107,7 +107,7 @@ loanRoutes.post("/", zValidator("json", createLoanSchema), async (c) => {
       ${body.interestRate || null}, ${body.loanPurpose}, ${body.loanProduct}, ${body.loanType},
       ${body.loanTerm || null}, ${body.loanAmount || null}, ${body.lienPosition}, ${body.occupancyType},
       ${body.lenderName || null}, ${body.lenderNmlsId || null},
-      ${user.nmlsId}, CURRENT_DATE, 'application'
+      ${user.nmlsId}, CURRENT_DATE, 'application', false
     )
     RETURNING *
   `;
