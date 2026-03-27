@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ScoreBadge } from "@/components/score-badge";
 import { StatusBadge } from "@/components/status-badge";
 
 interface DashboardData {
@@ -27,6 +26,34 @@ interface DashboardData {
   programs: { status: string; count: number }[];
 }
 
+/* ── Design tokens ── */
+const T = {
+  royal: "#1B3A6B",
+  royalLt: "#2B5298",
+  royalPl: "#E8EEF7",
+  grn: "#0F7B46",
+  grnLt: "#15A35E",
+  grnPl: "#E6F5EE",
+  red: "#C4302B",
+  redPl: "#FEF0EF",
+  amb: "#B8860B",
+  ambPl: "#FFF8E7",
+  shadowSm: "0 1px 3px rgba(27,58,107,.06)",
+  shadowMd: "0 4px 12px rgba(27,58,107,.1)",
+};
+
+function scoreColor(score: number) {
+  if (score >= 80) return T.grn;
+  if (score >= 50) return T.amb;
+  return T.red;
+}
+
+function scoreBg(score: number) {
+  if (score >= 80) return T.grnPl;
+  if (score >= 50) return T.ambPl;
+  return T.redPl;
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
@@ -41,59 +68,114 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700">
+      <div
+        className="text-sm"
+        style={{
+          backgroundColor: T.redPl,
+          color: T.red,
+          borderRadius: 10,
+          padding: 16,
+        }}
+      >
         {error}
       </div>
     );
   }
 
   if (!data) {
-    return <p className="text-gray-500">Loading dashboard...</p>;
+    return (
+      <div className="flex items-center gap-2 text-gray-400">
+        <span
+          className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+        />
+        Loading dashboard...
+      </div>
+    );
   }
-
-  const fmt = (n: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 0,
-    }).format(n);
 
   return (
     <div className="space-y-6">
+      {/* Welcome */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <h1
+          className="text-2xl font-bold"
+          style={{ color: T.royal }}
+        >
+          Dashboard
+        </h1>
         <p className="text-sm text-gray-500">
           Welcome back, {user?.name}
         </p>
       </div>
 
-      {/* KPI Cards */}
+      {/* ── Metric Cards ── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          label="Avg Compliance Score"
+        <MetricCard
+          label="Exam Readiness"
           value={`${data.examReadiness.avgScore}%`}
-          color={data.examReadiness.avgScore >= 80 ? "green" : data.examReadiness.avgScore >= 50 ? "amber" : "red"}
+          color={scoreColor(data.examReadiness.avgScore)}
+          bgColor={scoreBg(data.examReadiness.avgScore)}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          }
         />
-        <KpiCard
+        <MetricCard
           label="Total Loans"
           value={String(data.examReadiness.totalLoans)}
+          color={T.royal}
+          bgColor={T.royalPl}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          }
         />
-        <KpiCard
-          label="Passing (80%+)"
-          value={String(data.examReadiness.passingLoans)}
-          color="green"
-        />
-        <KpiCard
+        <MetricCard
           label="Critical Alerts"
           value={String(data.examReadiness.criticalAlerts)}
-          color={data.examReadiness.criticalAlerts > 0 ? "red" : "green"}
+          color={data.examReadiness.criticalAlerts > 0 ? T.red : T.grn}
+          bgColor={data.examReadiness.criticalAlerts > 0 ? T.redPl : T.grnPl}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          }
+        />
+        <MetricCard
+          label="Passing Loans"
+          value={String(data.examReadiness.passingLoans)}
+          color={T.grn}
+          bgColor={T.grnPl}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+          }
         />
       </div>
 
+      {/* ── Two-column detail panels ── */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Attention Required */}
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold text-gray-900">
+        {/* Loans Needing Attention */}
+        <div
+          style={{
+            backgroundColor: "#fff",
+            borderRadius: 14,
+            border: "1px solid #e5e7eb",
+            boxShadow: T.shadowSm,
+            padding: 20,
+          }}
+        >
+          <h2
+            className="mb-4 text-sm font-semibold"
+            style={{ color: T.royal }}
+          >
             Loans Needing Attention
           </h2>
           {data.attentionLoans.length === 0 ? (
@@ -103,20 +185,25 @@ export default function DashboardPage() {
               {data.attentionLoans.map((loan) => (
                 <div
                   key={loan.id}
-                  className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
+                  className="flex items-center justify-between"
+                  style={{
+                    backgroundColor: "#f9fafb",
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                  }}
                 >
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {loan.loan_number}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {loan.borrower} &middot; {loan.property_state}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <ScoreRing score={loan.compliance_score} />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        {loan.loan_number}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {loan.borrower} &middot; {loan.property_state}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={loan.status} />
-                    <ScoreBadge score={loan.compliance_score} />
-                  </div>
+                  <StatusBadge status={loan.status} />
                 </div>
               ))}
             </div>
@@ -124,8 +211,19 @@ export default function DashboardPage() {
         </div>
 
         {/* Upcoming Deadlines */}
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold text-gray-900">
+        <div
+          style={{
+            backgroundColor: "#fff",
+            borderRadius: 14,
+            border: "1px solid #e5e7eb",
+            boxShadow: T.shadowSm,
+            padding: 20,
+          }}
+        >
+          <h2
+            className="mb-4 text-sm font-semibold"
+            style={{ color: T.royal }}
+          >
             Upcoming Deadlines
           </h2>
           {data.upcomingDeadlines.length === 0 ? (
@@ -135,7 +233,12 @@ export default function DashboardPage() {
               {data.upcomingDeadlines.map((d) => (
                 <div
                   key={d.id}
-                  className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
+                  className="flex items-center justify-between"
+                  style={{
+                    backgroundColor: "#f9fafb",
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                  }}
                 >
                   <div>
                     <p className="text-sm font-medium text-gray-900">
@@ -153,10 +256,21 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Pipeline + Volume */}
+      {/* ── Pipeline + Programs ── */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold text-gray-900">
+        <div
+          style={{
+            backgroundColor: "#fff",
+            borderRadius: 14,
+            border: "1px solid #e5e7eb",
+            boxShadow: T.shadowSm,
+            padding: 20,
+          }}
+        >
+          <h2
+            className="mb-4 text-sm font-semibold"
+            style={{ color: T.royal }}
+          >
             Pipeline
           </h2>
           <div className="space-y-2">
@@ -171,8 +285,19 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold text-gray-900">
+        <div
+          style={{
+            backgroundColor: "#fff",
+            borderRadius: 14,
+            border: "1px solid #e5e7eb",
+            boxShadow: T.shadowSm,
+            padding: 20,
+          }}
+        >
+          <h2
+            className="mb-4 text-sm font-semibold"
+            style={{ color: T.royal }}
+          >
             Programs Status
           </h2>
           <div className="space-y-2">
@@ -191,28 +316,120 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({
+/* ── Metric Card ── */
+function MetricCard({
   label,
   value,
   color,
+  bgColor,
+  icon,
 }: {
   label: string;
   value: string;
-  color?: "green" | "amber" | "red";
+  color: string;
+  bgColor: string;
+  icon: React.ReactNode;
 }) {
-  const valueColor =
-    color === "green"
-      ? "text-green-700"
-      : color === "amber"
-        ? "text-amber-700"
-        : color === "red"
-          ? "text-red-700"
-          : "text-gray-900";
+  return (
+    <div
+      className="group"
+      style={{
+        backgroundColor: "#fff",
+        borderRadius: 14,
+        border: "1px solid #e5e7eb",
+        boxShadow: T.shadowSm,
+        padding: 20,
+        transition: "box-shadow .2s, transform .2s",
+        cursor: "default",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.boxShadow = T.shadowMd;
+        e.currentTarget.style.transform = "translateY(-2px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.boxShadow = T.shadowSm;
+        e.currentTarget.style.transform = "translateY(0)";
+      }}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <p
+          className="font-semibold"
+          style={{
+            fontSize: 10,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            color: "#6b7280",
+          }}
+        >
+          {label}
+        </p>
+        <div
+          className="flex items-center justify-center"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            backgroundColor: bgColor,
+            color: color,
+          }}
+        >
+          {icon}
+        </div>
+      </div>
+      <p
+        style={{
+          fontSize: 24,
+          fontWeight: 700,
+          color: color,
+          lineHeight: 1.2,
+        }}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/* ── Score Ring ── */
+function ScoreRing({ score }: { score: number }) {
+  const color = scoreColor(score);
+  const bg = scoreBg(score);
+  const circumference = 2 * Math.PI * 16;
+  const offset = circumference - (score / 100) * circumference;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
-      <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${valueColor}`}>{value}</p>
+    <div
+      className="relative flex items-center justify-center"
+      style={{ width: 40, height: 40 }}
+    >
+      <svg width="40" height="40" viewBox="0 0 40 40">
+        <circle
+          cx="20"
+          cy="20"
+          r="16"
+          fill={bg}
+          stroke="#e5e7eb"
+          strokeWidth="3"
+        />
+        <circle
+          cx="20"
+          cy="20"
+          r="16"
+          fill="none"
+          stroke={color}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          transform="rotate(-90 20 20)"
+        />
+      </svg>
+      <span
+        className="absolute text-xs font-bold"
+        style={{ color }}
+      >
+        {score}
+      </span>
     </div>
   );
 }
