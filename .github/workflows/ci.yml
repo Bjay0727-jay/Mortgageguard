@@ -124,10 +124,10 @@ jobs:
           fi
 
           # Inject Hyperdrive ID into wrangler.toml
-          HD_ID=$(npx wrangler hyperdrive list 2>/dev/null | grep -oP '"id":\s*"\K[a-f0-9]+' | head -1 || true)
+          HD_ID=$(npx wrangler hyperdrive list 2>/dev/null | grep -oP '"id":\s*"\K[a-f0-9-]+' | head -1 || true)
           if [ -n "$HD_ID" ]; then
             echo "Hyperdrive ID: $HD_ID"
-            sed -i "s/id = \"[a-f0-9]*\"/id = \"$HD_ID\"/" apps/api/wrangler.toml
+            sed -i "s/id = \"[a-f0-9-]*\"/id = \"$HD_ID\"/" apps/api/wrangler.toml
           fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
