@@ -60,10 +60,14 @@ CREATE TABLE IF NOT EXISTS loans (
   compliance_score INTEGER DEFAULT 0,
   docs_required INTEGER DEFAULT 0,
   docs_complete INTEGER DEFAULT 0,
+  is_deleted BOOLEAN DEFAULT false,
   originator_id UUID REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add is_deleted if missing (for existing deployments)
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_loans_company ON loans(company_id);
 CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);
