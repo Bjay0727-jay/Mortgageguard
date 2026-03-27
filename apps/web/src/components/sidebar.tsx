@@ -6,10 +6,10 @@ import { useAuth } from "@/lib/auth";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "\u2302" },
-  { href: "/dashboard/loans", label: "Loans", icon: "\u2637" },
-  { href: "/dashboard/programs", label: "Programs", icon: "\u2611" },
-  { href: "/dashboard/reports", label: "Reports", icon: "\u2630" },
-  { href: "/dashboard/integrations", label: "Integrations", icon: "\u2194" },
+  { href: "/loans", label: "Loans", icon: "\u2637" },
+  { href: "/programs", label: "Programs", icon: "\u2611" },
+  { href: "/reports", label: "Reports", icon: "\u2630" },
+  { href: "/integrations", label: "Integrations", icon: "\u2194" },
 ];
 
 export function Sidebar() {
