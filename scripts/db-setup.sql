@@ -27,13 +27,37 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   is_active BOOLEAN DEFAULT true,
+  must_change_password BOOLEAN NOT NULL DEFAULT false,
   last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Add must_change_password if missing (for existing deployments)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_company ON users(company_id);
+
+-- ─── User Invitations ───
+-- Admin-issued invites. Only the SHA-256 hash of the token is stored; the raw
+-- token lives only in the invite URL handed to the invitee.
+CREATE TABLE IF NOT EXISTS user_invitations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  email VARCHAR(255) NOT NULL,
+  role VARCHAR(50) NOT NULL,
+  token_hash TEXT NOT NULL,
+  invited_by UUID REFERENCES users(id),
+  expires_at TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invitations_token ON user_invitations(token_hash);
+CREATE INDEX IF NOT EXISTS idx_invitations_company ON user_invitations(company_id);
+CREATE INDEX IF NOT EXISTS idx_invitations_email ON user_invitations(email);
 
 -- ─── Loans ───
 CREATE TABLE IF NOT EXISTS loans (
@@ -222,19 +246,32 @@ CREATE INDEX IF NOT EXISTS idx_integrations_company ON integrations(company_id);
 --
 -- ⚠️  CHANGE THIS PASSWORD AFTER FIRST LOGIN. The password_hash below is a
 --    PBKDF2-SHA256 (100k iterations — the max the Workers runtime supports)
---    hash in the format the API verifies. The admin row is upserted so an
---    existing account with a stale hash is corrected on deploy.
+--    hash in the format the API verifies. The admin is seeded with
+--    must_change_password = true so the app forces a password change on first
+--    login.
 -- ─────────────────────────────────────────────────────
 INSERT INTO companies (id, name, license_states)
 VALUES ('00000000-0000-0000-0000-000000000001', 'MortgageGuard Demo', ARRAY['TX'])
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO users (company_id, role, name, email, password_hash)
+INSERT INTO users (company_id, role, name, email, password_hash, must_change_password)
 VALUES (
   '00000000-0000-0000-0000-000000000001',
   'company_admin',
   'Administrator',
   'admin@mortgageguard.com',
-  'pbkdf2:e29ebb67e881e482108f57514ab3bb47:2931f5738d769f90ea1aead758b44e87222a218a73553d39fd628a83a79b6c4e'
+  'pbkdf2:e29ebb67e881e482108f57514ab3bb47:2931f5738d769f90ea1aead758b44e87222a218a73553d39fd628a83a79b6c4e',
+  true
 )
-ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash;
+ON CONFLICT (email) DO NOTHING;
+
+-- Self-healing correction: if the seeded admin still has the bootstrap state
+-- (never logged in) reset it to the known-good default hash and re-arm the
+-- forced password change. Once the admin has logged in, this is a no-op, so a
+-- password the admin set later is never clobbered. Idempotent.
+UPDATE users
+SET password_hash = 'pbkdf2:e29ebb67e881e482108f57514ab3bb47:2931f5738d769f90ea1aead758b44e87222a218a73553d39fd628a83a79b6c4e',
+    must_change_password = true
+WHERE email = 'admin@mortgageguard.com'
+  AND last_login_at IS NULL
+  AND password_hash <> 'pbkdf2:e29ebb67e881e482108f57514ab3bb47:2931f5738d769f90ea1aead758b44e87222a218a73553d39fd628a83a79b6c4e';

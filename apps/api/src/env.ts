@@ -23,6 +23,9 @@ export interface Env {
   APP_NAME: string;
   JWT_SECRET: string;
   RESEND_API_KEY?: string;
+  // Public base URL of the web app, used to build invite links (e.g.
+  // https://app.mortgageguard.com). Optional — falls back to a relative path.
+  APP_BASE_URL?: string;
 }
 
 // ─── Queue Event Types ───

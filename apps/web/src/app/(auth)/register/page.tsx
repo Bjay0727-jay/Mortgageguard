@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { USER_ROLES } from "@mortgageguard/shared";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -14,9 +13,8 @@ export default function RegisterPage() {
     email: "",
     password: "",
     confirmPassword: "",
-    companyId: "",
+    companyName: "",
     nmlsId: "",
-    role: "loan_originator" as string,
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,9 +36,8 @@ export default function RegisterPage() {
         name: form.name,
         email: form.email,
         password: form.password,
-        companyId: form.companyId,
+        companyName: form.companyName,
         nmlsId: form.nmlsId || undefined,
-        role: form.role,
       });
       router.push("/dashboard");
     } catch (err: any) {
@@ -49,15 +46,6 @@ export default function RegisterPage() {
       setLoading(false);
     }
   }
-
-  const ROLE_LABELS: Record<string, string> = {
-    company_admin: "Company Admin",
-    qualifying_individual: "Qualifying Individual",
-    loan_originator: "Loan Originator",
-    processor: "Processor",
-    compliance_officer: "Compliance Officer",
-    read_only: "Read Only",
-  };
 
   const inputStyle: React.CSSProperties = {
     border: "1px solid #d1d5db",
@@ -108,15 +96,15 @@ export default function RegisterPage() {
           >
             MG
           </div>
-          <span
-            className="text-xl font-bold"
-            style={{ color: "#1B3A6B" }}
-          >
+          <span className="text-xl font-bold" style={{ color: "#1B3A6B" }}>
             MortgageGuard
           </span>
         </div>
-        <p className="mb-8 text-center text-sm text-gray-400">
-          Create your account
+        <p className="mb-2 text-center text-sm text-gray-400">
+          Create your company workspace
+        </p>
+        <p className="mb-8 text-center text-xs text-gray-400">
+          You'll be the company administrator. Team members join by invitation.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -135,10 +123,7 @@ export default function RegisterPage() {
           )}
 
           <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
+            <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
               Full Name
             </label>
             <input
@@ -155,10 +140,24 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
+            <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
+              Company Name
+            </label>
+            <input
+              type="text"
+              required
+              value={form.companyName}
+              onChange={(e) => update("companyName", e.target.value)}
+              className="w-full text-sm outline-none"
+              style={inputStyle}
+              onFocus={onFocus}
+              onBlur={onBlur}
+              placeholder="Your mortgage company"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
               Email
             </label>
             <input
@@ -175,10 +174,7 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
+            <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
               Password
             </label>
             <input
@@ -197,10 +193,7 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
+            <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
               Confirm Password
             </label>
             <input
@@ -219,30 +212,7 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
-              Company ID
-            </label>
-            <input
-              type="text"
-              required
-              value={form.companyId}
-              onChange={(e) => update("companyId", e.target.value)}
-              className="w-full text-sm outline-none"
-              style={inputStyle}
-              onFocus={onFocus}
-              onBlur={onBlur}
-              placeholder="Ask your company admin for this ID"
-            />
-          </div>
-
-          <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
+            <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
               NMLS ID (optional)
             </label>
             <input
@@ -254,32 +224,6 @@ export default function RegisterPage() {
               onFocus={onFocus}
               onBlur={onBlur}
             />
-          </div>
-
-          <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
-              Role
-            </label>
-            <select
-              value={form.role}
-              onChange={(e) => update("role", e.target.value)}
-              className="w-full text-sm outline-none"
-              style={{
-                ...inputStyle,
-                appearance: "auto" as any,
-              }}
-              onFocus={onFocus}
-              onBlur={onBlur}
-            >
-              {USER_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABELS[r] || r}
-                </option>
-              ))}
-            </select>
           </div>
 
           <button
@@ -295,8 +239,7 @@ export default function RegisterPage() {
               cursor: loading ? "not-allowed" : "pointer",
             }}
             onMouseEnter={(e) => {
-              if (!loading)
-                e.currentTarget.style.backgroundColor = "#2B5298";
+              if (!loading) e.currentTarget.style.backgroundColor = "#2B5298";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = "#1B3A6B";
@@ -308,11 +251,7 @@ export default function RegisterPage() {
 
         <p className="mt-6 text-center text-sm text-gray-500">
           Already have an account?{" "}
-          <Link
-            href="/login"
-            className="font-medium"
-            style={{ color: "#1B3A6B" }}
-          >
+          <Link href="/login" className="font-medium" style={{ color: "#1B3A6B" }}>
             Sign In
           </Link>
         </p>
