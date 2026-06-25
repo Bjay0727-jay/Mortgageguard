@@ -135,13 +135,24 @@ jobs:
 
       - name: Set Worker secrets
         if: steps.check-secrets.outputs.has_secrets == 'true'
-        run: |
-          echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET 2>/dev/null || true
-          echo "${{ secrets.RESEND_API_KEY }}" | npx wrangler secret put RESEND_API_KEY 2>/dev/null || true
-        working-directory: apps/api
         env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # The API signs JWTs with HS256; workerd rejects an empty signing key with a
+          # DataError, so a missing JWT_SECRET produces a 500 on every /auth request.
+          # Fail the deploy loudly instead of silently shipping a broken worker.
+          if [ -z "$JWT_SECRET" ]; then
+            echo "::error::JWT_SECRET repository secret is empty or unset. Add it under Settings → Secrets and variables → Actions. The API cannot sign auth tokens without it."
+            exit 1
+          fi
+          printf '%s' "$JWT_SECRET" | npx wrangler secret put JWT_SECRET
+          if [ -n "$RESEND_API_KEY" ]; then
+            printf '%s' "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
+          fi
+        working-directory: apps/api
 
       - name: Deploy to Cloudflare
         if: steps.check-secrets.outputs.has_secrets == 'true'
