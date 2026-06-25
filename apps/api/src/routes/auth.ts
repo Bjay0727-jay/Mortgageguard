@@ -52,7 +52,14 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
   await sql`UPDATE users SET last_login_at = NOW() WHERE id = ${user.id}`;
   const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);
   const refreshToken = await createToken({ sub: user.id, type: "refresh" }, c.env.JWT_SECRET, "30d");
-  await c.env.SESSIONS.put(`refresh:${user.id}`, refreshToken, { expirationTtl: 2592000 });
+  try {
+    await c.env.SESSIONS.put(`refresh:${user.id}`, refreshToken, { expirationTtl: 2592000 });
+  } catch (err) {
+    // Don't fail the login if the refresh token can't be cached (e.g. KV daily
+    // write limit exceeded). The access token is still valid; only token
+    // refresh is unavailable until KV writes recover.
+    console.error(`[AUTH] Could not persist refresh token (KV unavailable): ${err instanceof Error ? err.message : err}`);
+  }
   return c.json({ token, refreshToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, companyId: user.company_id, companyName: user.company_name, nmlsId: user.nmls_id } });
 });
 
