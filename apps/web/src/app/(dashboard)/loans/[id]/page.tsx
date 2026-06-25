@@ -68,10 +68,13 @@ interface GateReview {
   canAdvance: boolean;
   currentStage: string;
   targetStage: string;
+  transitionValid?: boolean;
   satisfiedCount: number;
   requiredCount: number;
   unsatisfied: { requiredDocumentId?: string; documentType: string; displayName: string }[];
   warnings: string[];
+  blockers?: string[];
+  allowedTargets?: string[];
 }
 
 interface TimelineEvent {
@@ -506,10 +509,21 @@ export default function LoanDetailPage() {
                 {gateReview.satisfiedCount}/{gateReview.requiredCount} required documents satisfied
               </p>
               <p className="mt-1 text-sm">
-                {gateReview.canAdvance ? "This loan is eligible to advance." : "Resolve blockers before advancing, or use an authorized override."}
+                {gateReview.canAdvance ? "This loan is eligible to advance." : "Resolve the blockers below before advancing, or use an authorized override."}
               </p>
             </div>
 
+            {/* Blockers prevent advancement (unless overridden). Distinct from warnings. */}
+            {(gateReview.blockers?.length ?? 0) > 0 && (
+              <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+                <p className="font-semibold">Blockers</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {gateReview.blockers!.map((blocker) => <li key={blocker}>{blocker}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {/* Warnings are informational only and never block advancement. */}
             {gateReview.warnings.length > 0 && (
               <div className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800">
                 <p className="font-semibold">Warnings</p>
@@ -531,7 +545,11 @@ export default function LoanDetailPage() {
                       <div key={doc.documentType} className="flex items-center justify-between gap-4 px-4 py-3">
                         <div>
                           <p className="text-sm font-medium text-gray-900">{doc.displayName}</p>
-                          <p className="text-xs text-red-600">Missing blocker</p>
+                          <p className="text-xs text-red-600">
+                            {checklistItem?.status && !["uploaded", "signed", "delivered"].includes(checklistItem.status)
+                              ? `Uploaded but status "${checklistItem.status}" is not accepted`
+                              : "Missing required document"}
+                          </p>
                         </div>
                         {canUploadDocuments && checklistItem && (
                           <button

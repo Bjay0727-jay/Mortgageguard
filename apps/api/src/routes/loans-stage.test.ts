@@ -18,37 +18,39 @@ const state = {
   timeline: [] as any[],
 };
 
+// Mock postgres.js. Branches mirror the SQL evaluateGate / advance issue, so the
+// integration tests exercise the real route logic against in-memory data.
 vi.mock("postgres", () => ({
   default: vi.fn(() => async (strings: TemplateStringsArray, ...values: any[]) => {
     const query = strings.join("?").replace(/\s+/g, " ").trim();
 
-    if (query.includes("SELECT * FROM loans WHERE id = ? AND company_id = ?")) {
+    if (query.includes("SELECT * FROM loans WHERE id = ?")) {
       return state.loans.filter((loan) => loan.id === values[0] && loan.company_id === values[1]);
     }
 
-    if (query.includes("rd.id as \"requiredDocumentId\"")) {
+    // Mandatory required documents gating the target stage.
+    if (query.includes('rd.id as "requiredDocumentId"')) {
       const [loanId, targetStage] = values;
       const checkIds = new Set(state.complianceChecks.filter((check) => check.loan_id === loanId).map((check) => check.required_document_id));
       return state.requiredDocuments
         .filter((doc) => checkIds.has(doc.id) && doc.pipeline_stage === targetStage && doc.is_mandatory)
-        .map((doc) => ({
-          requiredDocumentId: doc.id,
-          documentType: doc.document_type,
-          displayName: doc.display_name,
-          isMandatory: doc.is_mandatory,
-        }));
+        .map((doc) => ({ requiredDocumentId: doc.id, documentType: doc.document_type, displayName: doc.display_name }));
     }
 
-    if (query.includes("SELECT DISTINCT cc.required_document_id")) {
+    // Waived / N/A compliance checks.
+    if (query.includes("result IN ('waived', 'na')")) {
       const loanId = values[0];
       return state.complianceChecks
-        .filter((check) => check.loan_id === loanId)
-        .filter((check) => {
-          if (["pass", "waived", "na"].includes(check.result)) return true;
-          const doc = state.requiredDocuments.find((rd) => rd.id === check.required_document_id);
-          return Boolean(doc && state.loanDocuments.some((loanDoc) => loanDoc.loan_id === loanId && loanDoc.document_type === doc.document_type));
-        })
+        .filter((check) => check.loan_id === loanId && ["waived", "na"].includes(check.result))
         .map((check) => ({ required_document_id: check.required_document_id }));
+    }
+
+    // All documents for the loan (gate picks latest valid per type).
+    if (query.includes('uploaded_at as "uploadedAt"')) {
+      const loanId = values[0];
+      return state.loanDocuments
+        .filter((doc) => doc.loan_id === loanId)
+        .map((doc) => ({ documentType: doc.document_type, status: doc.status, uploadedAt: doc.uploaded_at }));
     }
 
     if (query.includes("UPDATE loans SET status = ?")) {
@@ -64,7 +66,7 @@ vi.mock("postgres", () => ({
       return [];
     }
 
-    if (query.includes("SELECT id FROM loans WHERE id = ? AND company_id = ?")) {
+    if (query.includes("SELECT id FROM loans WHERE id = ?")) {
       return state.loans.filter((loan) => loan.id === values[0] && loan.company_id === values[1]).map((loan) => ({ id: loan.id }));
     }
 
@@ -96,6 +98,13 @@ function createApp() {
   return app;
 }
 
+const json = (body: unknown, token: string) => ({
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+const validDoc = () => ({ loan_id: "loan-1", document_type: "initial_disclosure", status: "uploaded", uploaded_at: new Date().toISOString() });
+
 describe("loan stage advancement", () => {
   beforeEach(() => {
     state.loans = [{ id: "loan-1", company_id: "company-1", status: "application" }];
@@ -104,7 +113,7 @@ describe("loan stage advancement", () => {
     state.timeline = [];
   });
 
-  it("blocked stage advance shows missing docs", async () => {
+  it("preview and advance agree when required documents are missing", async () => {
     const app = createApp();
     const env = createMockEnv();
     const token = await makeToken();
@@ -114,46 +123,135 @@ describe("loan stage advancement", () => {
     const gate = await gateRes.json() as any;
     expect(gate.canAdvance).toBe(false);
     expect(gate.unsatisfied).toEqual([{ requiredDocumentId: "rd-processing", documentType: "initial_disclosure", displayName: "Initial Disclosure Package" }]);
+    expect(gate.blockers.length).toBeGreaterThan(0);
 
-    const advanceRes = await app.request("/api/v1/loans/loan-1/advance", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ targetStage: "processing" }) }, env);
+    const advanceRes = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing" }, token), env);
     expect(advanceRes.status).toBe(400);
+    const body = await advanceRes.json() as any;
+    expect(body.code).toBe("GATE_UNSATISFIED");
+    expect(body.gate.canAdvance).toBe(false);
   });
 
-  it("successful advance updates status", async () => {
+  it("preview and advance agree when required documents are satisfied", async () => {
     const app = createApp();
     const env = createMockEnv();
-    state.loanDocuments.push({ loan_id: "loan-1", document_type: "initial_disclosure" });
+    const token = await makeToken();
+    state.loanDocuments.push(validDoc());
 
-    const res = await app.request("/api/v1/loans/loan-1/advance", { method: "POST", headers: { Authorization: `Bearer ${await makeToken()}`, "Content-Type": "application/json" }, body: JSON.stringify({ targetStage: "processing" }) }, env);
+    const gate = await (await app.request("/api/v1/loans/loan-1/gate/processing", { headers: { Authorization: `Bearer ${token}` } }, env)).json() as any;
+    expect(gate.canAdvance).toBe(true);
+
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing" }, token), env);
     expect(res.status).toBe(200);
     expect(state.loans[0].status).toBe("processing");
     expect(state.timeline[0].event_type).toBe("stage_advanced");
   });
 
+  it("no mandatory requirements configured is non-blocking and warns", async () => {
+    const app = createApp();
+    const env = createMockEnv();
+    const token = await makeToken();
+    state.complianceChecks = []; // nothing configured for this loan
+
+    const gate = await (await app.request("/api/v1/loans/loan-1/gate/processing", { headers: { Authorization: `Bearer ${token}` } }, env)).json() as any;
+    expect(gate.canAdvance).toBe(true);
+    expect(gate.warnings).toContain("No mandatory document requirements are configured for this stage.");
+
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing" }, token), env);
+    expect(res.status).toBe(200);
+  });
+
+  it("a rejected document does not satisfy the gate", async () => {
+    const app = createApp();
+    const env = createMockEnv();
+    const token = await makeToken();
+    state.loanDocuments.push({ ...validDoc(), status: "rejected" });
+
+    const gate = await (await app.request("/api/v1/loans/loan-1/gate/processing", { headers: { Authorization: `Bearer ${token}` } }, env)).json() as any;
+    expect(gate.canAdvance).toBe(false);
+
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing" }, token), env);
+    expect(res.status).toBe(400);
+  });
+
+  it("invalid transition is blocked in preview and advance (not overrideable)", async () => {
+    const app = createApp();
+    const env = createMockEnv();
+    const token = await makeToken("company_admin");
+
+    const gate = await (await app.request("/api/v1/loans/loan-1/gate/closing", { headers: { Authorization: `Bearer ${token}` } }, env)).json() as any;
+    expect(gate.canAdvance).toBe(false);
+    expect(gate.transitionValid).toBe(false);
+
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "closing", override: true, reason: "force" }, token), env);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toBe("Invalid stage transition");
+    expect(body.allowedTargets).toContain("processing");
+  });
+
+  it("terminal loan cannot advance", async () => {
+    const app = createApp();
+    const env = createMockEnv();
+    state.loans[0].status = "denied";
+    const token = await makeToken("company_admin");
+
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing", override: true, reason: "x" }, token), env);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toContain("terminal");
+    expect(body.allowedTargets).toEqual([]);
+  });
+
+  it("gate preview requires the advanceLoanStage capability", async () => {
+    const app = createApp();
+    const env = createMockEnv();
+    const res = await app.request("/api/v1/loans/loan-1/gate/processing", { headers: { Authorization: `Bearer ${await makeToken("read_only")}` } }, env);
+    expect(res.status).toBe(403);
+  });
+
   it("unauthorized role cannot advance", async () => {
     const app = createApp();
     const env = createMockEnv();
-    const res = await app.request("/api/v1/loans/loan-1/advance", { method: "POST", headers: { Authorization: `Bearer ${await makeToken("read_only")}`, "Content-Type": "application/json" }, body: JSON.stringify({ targetStage: "processing" }) }, env);
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing" }, await makeToken("read_only")), env);
     expect(res.status).toBe(403);
+  });
+
+  it("override requires the overrideCompliance capability", async () => {
+    const app = createApp();
+    const env = createMockEnv();
+    // loan_originator has advanceLoanStage but NOT overrideCompliance.
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing", override: true, reason: "please" }, await makeToken("loan_originator")), env);
+    expect(res.status).toBe(403);
+    const body = await res.json() as any;
+    expect(body.code).toBe("OVERRIDE_FORBIDDEN");
   });
 
   it("override requires reason", async () => {
     const app = createApp();
     const env = createMockEnv();
-    const res = await app.request("/api/v1/loans/loan-1/advance", { method: "POST", headers: { Authorization: `Bearer ${await makeToken("company_admin")}`, "Content-Type": "application/json" }, body: JSON.stringify({ targetStage: "processing", override: true }) }, env);
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing", override: true }, await makeToken("company_admin")), env);
     expect(res.status).toBe(400);
     const body = await res.json() as any;
     expect(body.error).toContain("reason");
   });
 
-  it("override writes audit timeline metadata", async () => {
+  it("override writes audit metadata including blockers, warnings, and unsatisfied docs", async () => {
     const app = createApp();
     const env = createMockEnv();
-    const res = await app.request("/api/v1/loans/loan-1/advance", { method: "POST", headers: { Authorization: `Bearer ${await makeToken("company_admin")}`, "Content-Type": "application/json" }, body: JSON.stringify({ targetStage: "processing", override: true, reason: "Compliance manager approved exception." }) }, env);
+    const res = await app.request("/api/v1/loans/loan-1/advance", json({ targetStage: "processing", override: true, reason: "Compliance manager approved exception." }, await makeToken("company_admin")), env);
     expect(res.status).toBe(200);
     expect(state.loans[0].status).toBe("processing");
     expect(state.timeline[0].event_type).toBe("stage_override");
-    expect(JSON.parse(state.timeline[0].metadata)).toMatchObject({ override: true, reason: "Compliance manager approved exception." });
-    expect((env.AUDIT_QUEUE as any).messages[0]).toMatchObject({ type: "stage.override", action: "override_stage_gate" });
+
+    const meta = JSON.parse(state.timeline[0].metadata);
+    expect(meta).toMatchObject({ override: true, reason: "Compliance manager approved exception." });
+    expect(meta.blockers.length).toBeGreaterThan(0);
+    expect(meta.unsatisfied).toHaveLength(1);
+    expect(Array.isArray(meta.warnings)).toBe(true);
+
+    const audit = (env.AUDIT_QUEUE as any).messages[0];
+    expect(audit).toMatchObject({ type: "stage.override", action: "override_stage_gate" });
+    expect(audit.details.unsatisfied).toHaveLength(1);
   });
 });

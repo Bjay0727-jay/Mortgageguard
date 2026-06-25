@@ -60,9 +60,15 @@ documentRoutes.post("/upload/:loanId", requireCapability("uploadLoanDocument"), 
   });
   await c.env.DOCUMENTS.put(key, bytes, { httpMetadata: { contentType: detectedMimeType } });
 
+  // Replacement semantics (Option B): we keep prior rows untouched and insert a
+  // fresh row with a valid 'uploaded' status. Gate evaluation only counts the
+  // LATEST document per type (see computeGateSatisfaction), so the new upload
+  // supersedes the old one for gating without mutating history. Status is set
+  // explicitly (rather than relying on the column default) so a freshly uploaded
+  // document always satisfies the gate's valid-status filter.
   const [doc] = await sql`
-    INSERT INTO loan_documents (loan_id, document_type, file_name, file_path, file_size, mime_type, uploaded_by)
-    VALUES (${loanId}, ${documentType}, ${safeFileName}, ${key}, ${file.size}, ${detectedMimeType}, ${user.userId})
+    INSERT INTO loan_documents (loan_id, document_type, file_name, file_path, file_size, mime_type, status, uploaded_by)
+    VALUES (${loanId}, ${documentType}, ${safeFileName}, ${key}, ${file.size}, ${detectedMimeType}, 'uploaded', ${user.userId})
     RETURNING *`;
 
   const auditType = existing ? "document.replaced" : "document.uploaded";

@@ -206,4 +206,25 @@ describe("document routes", () => {
     const allowed = await app.request("/api/v1/documents/loan-1/doc-1/download", { headers: { Authorization: `Bearer ${token}` } }, env);
     expect(allowed.status).toBe(200);
   });
+
+  it("replacing a document supersedes the prior one for the checklist (latest valid wins)", async () => {
+    const app = createApp();
+    const env = createMockEnv();
+    const token = await makeToken();
+
+    const first = await upload(app, env, token, pdfFile("first.pdf"));
+    expect(first.status).toBe(201);
+
+    const second = await upload(app, env, token, pdfFile("second.pdf"));
+    expect(second.status).toBe(200); // replacement, not a new create
+    const body = await second.json() as any;
+    expect(body.replacedDocumentId).toBe("doc-1");
+    expect(state.documents).toHaveLength(2);
+
+    // Checklist reflects the latest document; the new upload carries a valid status.
+    const checklist = await (await app.request("/api/v1/loans/loan-1/checklist", { headers: { Authorization: `Bearer ${token}` } }, env)).json() as any;
+    expect(checklist.checklist[0].documentId).toBe("doc-2");
+    expect(checklist.checklist[0].fileName).toBe("second.pdf");
+    expect(checklist.checklist[0].status).toBe("uploaded");
+  });
 });

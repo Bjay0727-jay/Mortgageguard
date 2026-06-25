@@ -145,6 +145,59 @@ export async function generateChecklist(
   return checklist;
 }
 
+// ─── Gate Document Status Policy ───
+// Only "current/valid" document statuses satisfy a gate. A document that is
+// rejected, expired, or deleted (row removed) must NOT count. These are the
+// statuses that exist in the doc_status enum AND represent a usable document;
+// `pending` (not yet processed) and `rejected`/`expired` are intentionally
+// excluded. ("verified"/"superseded" are not in the schema, so they're omitted.)
+export const GATE_SATISFYING_DOCUMENT_STATUSES = ["uploaded", "signed", "delivered"] as const;
+
+export function isGateSatisfyingStatus(status: string | null | undefined): boolean {
+  return !!status && (GATE_SATISFYING_DOCUMENT_STATUSES as readonly string[]).includes(status);
+}
+
+interface GateRequirementRow {
+  requiredDocumentId: string;
+  documentType: string;
+  displayName: string;
+}
+interface LoanDocumentRow {
+  documentType: string;
+  status: string | null;
+  uploadedAt: string | Date;
+}
+
+// Pure gate-satisfaction logic (no DB) so the edge cases are unit-testable.
+//
+// Replacement semantics (Option B): previous loan_documents rows are NOT mutated
+// on replace, so gate evaluation considers ONLY the LATEST document per
+// document_type (by uploaded_at) and counts it only if its status is valid.
+// Consequently a stale/superseded older row never satisfies a gate, and a newer
+// replacement with a valid status does.
+export function computeGateSatisfaction(params: {
+  requirements: GateRequirementRow[];
+  documents: LoanDocumentRow[];
+  waivedRequiredDocumentIds?: Iterable<string>;
+}): { unsatisfied: GateRequirementRow[]; satisfiedCount: number } {
+  const latestByType = new Map<string, LoanDocumentRow>();
+  for (const doc of params.documents) {
+    const prev = latestByType.get(doc.documentType);
+    if (!prev || new Date(doc.uploadedAt).getTime() >= new Date(prev.uploadedAt).getTime()) {
+      latestByType.set(doc.documentType, doc);
+    }
+  }
+
+  const waived = new Set(params.waivedRequiredDocumentIds ?? []);
+  const unsatisfied = params.requirements.filter((req) => {
+    if (waived.has(req.requiredDocumentId)) return false; // explicitly waived / N/A
+    const latest = latestByType.get(req.documentType);
+    return !(latest && isGateSatisfyingStatus(latest.status));
+  });
+
+  return { unsatisfied, satisfiedCount: params.requirements.length - unsatisfied.length };
+}
+
 // ─── Gate Evaluator ───
 // Step 3: Check if a loan can advance to the target stage
 export async function evaluateGate(
@@ -154,13 +207,12 @@ export async function evaluateGate(
 ): Promise<GateResult> {
   const sql = postgres(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
 
-  // Get required docs for the current stage gate
+  // Mandatory required documents gating this stage.
   const gateRequirements = await sql`
     SELECT
       rd.id as "requiredDocumentId",
       rd.document_type as "documentType",
-      rd.display_name as "displayName",
-      rd.is_mandatory as "isMandatory"
+      rd.display_name as "displayName"
     FROM compliance_checks cc
     JOIN required_documents rd ON rd.id = cc.required_document_id
     WHERE cc.loan_id = ${loanId}
@@ -168,37 +220,43 @@ export async function evaluateGate(
       AND rd.is_mandatory = true
   `;
 
-  // A gate is satisfied by a passing/waived compliance check or a matching uploaded
-  // document. The upload comparison is intentionally by document_type because
-  // replacement uploads create new loan_documents rows while the required document
-  // ID remains stable.
-  const satisfiedDocs = await sql`
-    SELECT DISTINCT cc.required_document_id
-    FROM compliance_checks cc
-    JOIN required_documents rd ON rd.id = cc.required_document_id
-    WHERE cc.loan_id = ${loanId}
-      AND (
-        cc.result IN ('pass', 'waived', 'na')
-        OR EXISTS (
-          SELECT 1 FROM loan_documents ld
-          WHERE ld.loan_id = cc.loan_id
-            AND ld.document_type = rd.document_type
-        )
-      )
+  // Checks an officer explicitly waived or marked not-applicable count as satisfied
+  // without a document. ('pass' is intentionally NOT trusted here — document
+  // presence/status is the authoritative signal so a later rejection/deletion
+  // correctly un-satisfies the gate.)
+  const waived = await sql`
+    SELECT required_document_id FROM compliance_checks
+    WHERE loan_id = ${loanId} AND result IN ('waived', 'na')
   `;
 
-  const satisfiedSet = new Set(satisfiedDocs.map(d => d.required_document_id));
-  const unsatisfied = gateRequirements.filter(r => !satisfiedSet.has(r.requiredDocumentId));
+  // All documents for the loan; computeGateSatisfaction picks the latest valid one
+  // per type. Cast status to text so this works whether the column is an enum or
+  // varchar in the deployed database.
+  const documents = await sql`
+    SELECT document_type as "documentType", status::text as "status", uploaded_at as "uploadedAt"
+    FROM loan_documents
+    WHERE loan_id = ${loanId}
+  `;
+
+  const { unsatisfied, satisfiedCount } = computeGateSatisfaction({
+    requirements: gateRequirements as unknown as GateRequirementRow[],
+    documents: documents as unknown as LoanDocumentRow[],
+    waivedRequiredDocumentIds: waived.map((w) => w.required_document_id),
+  });
 
   return {
     canAdvance: unsatisfied.length === 0,
-    satisfiedCount: gateRequirements.length - unsatisfied.length,
+    satisfiedCount,
     requiredCount: gateRequirements.length,
-    unsatisfied: unsatisfied.map(u => ({
+    unsatisfied: unsatisfied.map((u) => ({
       requiredDocumentId: u.requiredDocumentId,
       documentType: u.documentType,
       displayName: u.displayName,
     })),
+    // No-requirements-configured is NON-BLOCKING (MVP): empty/demo environments
+    // shouldn't hard-fail just because rules aren't loaded. The dashboard already
+    // warns when Texas rules are missing. See buildStageReadiness for how this
+    // becomes a warning (not a blocker).
     warnings: gateRequirements.length === 0 ? ["No mandatory document requirements are configured for this stage."] : [],
   };
 }
