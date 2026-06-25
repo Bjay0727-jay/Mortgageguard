@@ -84,6 +84,43 @@ class ApiClient {
   upload<T = unknown>(path: string, formData: FormData) {
     return this.request<T>(path, { method: "POST", body: formData });
   }
+
+  // Authenticated binary download (e.g. protected CSV export). Returns a Blob so
+  // callers never fall back to window.open without the token.
+  async download(path: string): Promise<Blob> {
+    const token = this.getToken();
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 401) {
+      this.setToken(null);
+      if (typeof window !== "undefined") window.location.href = "/login";
+      throw new Error("Unauthorized");
+    }
+    if (!res.ok) {
+      let message = `Request failed: ${res.status}`;
+      try {
+        const data = await res.json();
+        message = (data as any).error || message;
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new Error(message);
+    }
+    return res.blob();
+  }
+}
+
+// Trigger a browser download for an in-memory Blob.
+export function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export const api = new ApiClient();

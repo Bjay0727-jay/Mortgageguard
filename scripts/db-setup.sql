@@ -219,9 +219,20 @@ CREATE TABLE IF NOT EXISTS reporting_deadlines (
   due_date DATE NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'upcoming',
   notes TEXT,
+  -- Filing evidence
+  filed_at TIMESTAMPTZ,
+  filed_by UUID REFERENCES users(id),
+  confirmation_number VARCHAR(100),
+  evidence_file_path TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add filing-evidence columns if missing (for existing deployments)
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS filed_at TIMESTAMPTZ;
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS filed_by UUID REFERENCES users(id);
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS confirmation_number VARCHAR(100);
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS evidence_file_path TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_deadlines_company ON reporting_deadlines(company_id);
 

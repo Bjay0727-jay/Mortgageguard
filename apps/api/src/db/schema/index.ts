@@ -289,6 +289,9 @@ export const reportingDeadlines = pgTable("reporting_deadlines", {
   dueDate: date("due_date").notNull(),
   status: reportStatusEnum("status").default("upcoming").notNull(),
   filedAt: timestamp("filed_at"),
+  filedBy: uuid("filed_by").references(() => users.id),
+  confirmationNumber: varchar("confirmation_number", { length: 100 }),
+  evidenceFilePath: text("evidence_file_path"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
