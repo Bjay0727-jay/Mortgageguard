@@ -8,6 +8,8 @@ import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import type { Env } from "../env";
 import { evaluateGate, calculateScore, generateChecklist } from "../services/compliance-engine";
+import { requireCapability } from "../middleware/auth";
+import { hasCapability } from "@mortgageguard/shared";
 
 export const loanRoutes = new Hono<{ Bindings: Env }>();
 
@@ -32,9 +34,32 @@ const createLoanSchema = z.object({
   lenderNmlsId: z.string().optional(),
 });
 
+const PIPELINE_STAGE_ORDER = ["application", "processing", "underwriting", "closing", "post_close"] as const;
+const TERMINAL_STAGES = ["denied", "withdrawn"] as const;
+const LOAN_STAGES = [...PIPELINE_STAGE_ORDER, ...TERMINAL_STAGES] as const;
+type LoanStage = (typeof LOAN_STAGES)[number];
+
 const advanceStageSchema = z.object({
-  targetStage: z.enum(["application", "processing", "underwriting", "closing", "post_close", "denied", "withdrawn"]),
+  targetStage: z.enum(LOAN_STAGES),
+  override: z.boolean().optional().default(false),
+  reason: z.string().trim().min(1).max(1000).optional(),
 });
+
+function getNextStage(currentStage: string): LoanStage | null {
+  const index = PIPELINE_STAGE_ORDER.indexOf(currentStage as typeof PIPELINE_STAGE_ORDER[number]);
+  if (index < 0 || index >= PIPELINE_STAGE_ORDER.length - 1) return null;
+  return PIPELINE_STAGE_ORDER[index + 1];
+}
+
+function isValidStageTransition(currentStage: string, targetStage: LoanStage): boolean {
+  if ((TERMINAL_STAGES as readonly string[]).includes(currentStage)) return false;
+  if ((TERMINAL_STAGES as readonly string[]).includes(targetStage)) return true;
+  return getNextStage(currentStage) === targetStage;
+}
+
+function formatStage(stage: string): string {
+  return stage.split("_").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+}
 
 // ─── GET /api/v1/loans — List loans for company ───
 loanRoutes.get("/", async (c) => {
@@ -85,7 +110,7 @@ loanRoutes.get("/", async (c) => {
 });
 
 // ─── POST /api/v1/loans — Create a new loan ───
-loanRoutes.post("/", zValidator("json", createLoanSchema), async (c) => {
+loanRoutes.post("/", requireCapability("createLoan"), zValidator("json", createLoanSchema), async (c) => {
   const user = c.get("user");
   const body = c.req.valid("json");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
@@ -181,21 +206,33 @@ loanRoutes.get("/:id/checklist", async (c) => {
     loanId, loan.property_state, loan.loan_type, loan.loan_purpose, loan.loan_product, c.env
   );
 
-  // Get uploaded docs for this loan
+  // Get latest uploaded document metadata for each checklist document type.
   const uploadedDocs = await sql`
-    SELECT document_type, status, is_signed, uploaded_at
-    FROM loan_documents WHERE loan_id = ${loanId}
+    SELECT DISTINCT ON (document_type)
+      id, document_type, file_name, file_size, mime_type, uploaded_by, status, is_signed, uploaded_at
+    FROM loan_documents
+    WHERE loan_id = ${loanId}
+    ORDER BY document_type, uploaded_at DESC
   `;
   const uploadedSet = new Map(uploadedDocs.map(d => [d.document_type, d]));
 
-  // Merge checklist with upload status
-  const enriched = checklist.map(item => ({
-    ...item,
-    uploaded: uploadedSet.has(item.documentType),
-    uploadStatus: uploadedSet.get(item.documentType)?.status || null,
-    isSigned: uploadedSet.get(item.documentType)?.is_signed || false,
-    uploadedAt: uploadedSet.get(item.documentType)?.uploaded_at || null,
-  }));
+  // Merge checklist with upload status and metadata needed by the UI.
+  const enriched = checklist.map(item => {
+    const uploadedDoc = uploadedSet.get(item.documentType);
+    return {
+      ...item,
+      uploaded: Boolean(uploadedDoc),
+      documentId: uploadedDoc?.id || null,
+      fileName: uploadedDoc?.file_name || null,
+      fileSize: uploadedDoc?.file_size || null,
+      mimeType: uploadedDoc?.mime_type || null,
+      uploadedAt: uploadedDoc?.uploaded_at || null,
+      uploadedBy: uploadedDoc?.uploaded_by || null,
+      status: uploadedDoc?.status || null,
+      uploadStatus: uploadedDoc?.status || null,
+      isSigned: uploadedDoc?.is_signed || false,
+    };
+  });
 
   return c.json({ checklist: enriched, total: checklist.length, complete: enriched.filter(i => i.uploaded).length });
 });
@@ -213,11 +250,43 @@ loanRoutes.get("/:id/score", async (c) => {
   return c.json(score);
 });
 
-// ─── POST /api/v1/loans/:id/advance — Advance pipeline stage ───
-loanRoutes.post("/:id/advance", zValidator("json", advanceStageSchema), async (c) => {
+// ─── GET /api/v1/loans/:id/gate/:targetStage — Preview stage gate ───
+loanRoutes.get("/:id/gate/:targetStage", async (c) => {
   const user = c.get("user");
   const loanId = c.req.param("id");
-  const { targetStage } = c.req.valid("json");
+  const targetStage = c.req.param("targetStage") as LoanStage;
+  if (!(LOAN_STAGES as readonly string[]).includes(targetStage)) {
+    return c.json({ error: "Invalid target stage" }, 400);
+  }
+
+  const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
+  const [loan] = await sql`
+    SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${user.companyId}
+  `;
+  if (!loan) return c.json({ error: "Loan not found" }, 404);
+
+  const warnings: string[] = [];
+  if (!isValidStageTransition(loan.status, targetStage)) {
+    warnings.push((TERMINAL_STAGES as readonly string[]).includes(loan.status)
+      ? `Loan is terminal (${formatStage(loan.status)}) and cannot be advanced.`
+      : `Target stage must be the next stage after ${formatStage(loan.status)}.`);
+  }
+
+  const gate = await evaluateGate(loanId, targetStage, c.env);
+  return c.json({
+    ...gate,
+    canAdvance: gate.canAdvance && warnings.length === 0,
+    currentStage: loan.status,
+    targetStage,
+    warnings: [...gate.warnings, ...warnings],
+  });
+});
+
+// ─── POST /api/v1/loans/:id/advance — Advance pipeline stage ───
+loanRoutes.post("/:id/advance", requireCapability("advanceLoanStage"), zValidator("json", advanceStageSchema), async (c) => {
+  const user = c.get("user");
+  const loanId = c.req.param("id");
+  const { targetStage, override, reason } = c.req.valid("json");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
 
   const [loan] = await sql`
@@ -225,18 +294,32 @@ loanRoutes.post("/:id/advance", zValidator("json", advanceStageSchema), async (c
   `;
   if (!loan) return c.json({ error: "Loan not found" }, 404);
 
+  if (!isValidStageTransition(loan.status, targetStage)) {
+    return c.json({ error: "Invalid stage transition", currentStage: loan.status, targetStage }, 400);
+  }
+
   // Evaluate compliance gate
   const gate = await evaluateGate(loanId, targetStage, c.env);
+  const isOverride = Boolean(override);
 
   if (!gate.canAdvance) {
-    return c.json({
-      error: "Cannot advance — compliance gate not satisfied",
-      gate,
-    }, 400);
+    if (!isOverride) {
+      return c.json({
+        error: "Cannot advance — compliance gate not satisfied",
+        gate: { ...gate, currentStage: loan.status, targetStage },
+      }, 400);
+    }
+    if (!hasCapability(user.role, "overrideCompliance")) {
+      return c.json({ error: "Insufficient permissions", requiredCapability: "overrideCompliance" }, 403);
+    }
+    if (!reason) {
+      return c.json({ error: "Override reason is required" }, 400);
+    }
   }
 
   // Advance the stage
   const previousStage = loan.status;
+  const metadata = { override: isOverride && !gate.canAdvance, reason: reason || null, gate };
   await sql`
     UPDATE loans SET status = ${targetStage}, updated_at = NOW()
     WHERE id = ${loanId}
@@ -244,24 +327,24 @@ loanRoutes.post("/:id/advance", zValidator("json", advanceStageSchema), async (c
 
   // Record timeline event
   await sql`
-    INSERT INTO loan_timeline (loan_id, event_type, stage_from, stage_to, description, performed_by)
-    VALUES (${loanId}, 'stage_advanced', ${previousStage}, ${targetStage}, ${'Advanced from ' + previousStage + ' to ' + targetStage}, ${user.userId})
+    INSERT INTO loan_timeline (loan_id, event_type, stage_from, stage_to, description, metadata, performed_by)
+    VALUES (${loanId}, ${metadata.override ? 'stage_override' : 'stage_advanced'}, ${previousStage}, ${targetStage}, ${metadata.override ? 'Override advanced from ' + previousStage + ' to ' + targetStage : 'Advanced from ' + previousStage + ' to ' + targetStage}, ${JSON.stringify(metadata)}, ${user.userId})
   `;
 
   // Emit audit event
   await c.env.AUDIT_QUEUE.send({
-    type: "stage.changed",
+    type: metadata.override ? "stage.override" : "stage.changed",
     entityType: "loan",
     entityId: loanId,
     companyId: user.companyId,
     userId: user.userId,
-    action: "advance_stage",
-    details: { from: previousStage, to: targetStage },
+    action: metadata.override ? "override_stage_gate" : "advance_stage",
+    details: { from: previousStage, to: targetStage, ...metadata },
     ipAddress: c.req.header("cf-connecting-ip") || "unknown",
     timestamp: new Date().toISOString(),
   });
 
-  return c.json({ success: true, previousStage, newStage: targetStage, gate });
+  return c.json({ success: true, previousStage, newStage: targetStage, gate, override: metadata.override });
 });
 
 // ─── GET /api/v1/loans/:id/timeline — Get loan event history ───

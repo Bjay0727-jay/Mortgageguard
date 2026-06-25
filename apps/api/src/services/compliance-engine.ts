@@ -30,7 +30,8 @@ interface GateResult {
   canAdvance: boolean;
   satisfiedCount: number;
   requiredCount: number;
-  unsatisfied: { documentType: string; displayName: string }[];
+  unsatisfied: { requiredDocumentId: string; documentType: string; displayName: string }[];
+  warnings: string[];
 }
 
 interface ComplianceScore {
@@ -156,6 +157,7 @@ export async function evaluateGate(
   // Get required docs for the current stage gate
   const gateRequirements = await sql`
     SELECT
+      rd.id as "requiredDocumentId",
       rd.document_type as "documentType",
       rd.display_name as "displayName",
       rd.is_mandatory as "isMandatory"
@@ -166,12 +168,23 @@ export async function evaluateGate(
       AND rd.is_mandatory = true
   `;
 
-  // Get which docs are satisfied
+  // A gate is satisfied by a passing/waived compliance check or a matching uploaded
+  // document. The upload comparison is intentionally by document_type because
+  // replacement uploads create new loan_documents rows while the required document
+  // ID remains stable.
   const satisfiedDocs = await sql`
     SELECT DISTINCT cc.required_document_id
     FROM compliance_checks cc
+    JOIN required_documents rd ON rd.id = cc.required_document_id
     WHERE cc.loan_id = ${loanId}
-      AND cc.result = 'pass'
+      AND (
+        cc.result IN ('pass', 'waived', 'na')
+        OR EXISTS (
+          SELECT 1 FROM loan_documents ld
+          WHERE ld.loan_id = cc.loan_id
+            AND ld.document_type = rd.document_type
+        )
+      )
   `;
 
   const satisfiedSet = new Set(satisfiedDocs.map(d => d.required_document_id));
@@ -182,9 +195,11 @@ export async function evaluateGate(
     satisfiedCount: gateRequirements.length - unsatisfied.length,
     requiredCount: gateRequirements.length,
     unsatisfied: unsatisfied.map(u => ({
+      requiredDocumentId: u.requiredDocumentId,
       documentType: u.documentType,
       displayName: u.displayName,
     })),
+    warnings: gateRequirements.length === 0 ? ["No mandatory document requirements are configured for this stage."] : [],
   };
 }
 
@@ -296,7 +311,8 @@ export async function processComplianceEvent(event: ComplianceEvent, env: Env): 
       await initializeComplianceChecks(event.loanId, propertyState, loanType, loanPurpose, loanProduct, env);
       break;
     }
-    case "document.uploaded": {
+    case "document.uploaded":
+    case "document.replaced": {
       // Re-evaluate compliance checks for this loan
       const { documentType } = event.payload as any;
       const sql = postgres(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });

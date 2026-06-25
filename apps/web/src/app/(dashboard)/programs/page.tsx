@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
+import { useCapabilities } from "@/lib/capabilities";
+import { InsufficientPermission } from "@/components/insufficient-permission";
 
 interface Program {
   id: string;
@@ -32,6 +34,7 @@ export default function ProgramsPage() {
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { can } = useCapabilities();
 
   function load() {
     api.get<ProgramsResponse>("/api/v1/programs").then(setData).catch((e) => setError(e.message));
@@ -56,6 +59,7 @@ export default function ProgramsPage() {
     }
   }
 
+  if (!can("viewCompliancePrograms")) return <InsufficientPermission />;
   if (error) return <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">{error}</div>;
   if (!data) return <p className="text-gray-500">Loading programs...</p>;
 
@@ -89,7 +93,7 @@ export default function ProgramsPage() {
               <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Required By</th>
               <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Status</th>
               <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Last Reviewed</th>
-              <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Action</th>
+              {can("uploadProgramDocument") && <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Action</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -106,7 +110,7 @@ export default function ProgramsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{p.last_reviewed_at || "Never"}</td>
-                <td className="px-4 py-3">
+                {can("uploadProgramDocument") && (<td className="px-4 py-3">
                   <button
                     onClick={() => {
                       fileRef.current?.click();
@@ -121,7 +125,7 @@ export default function ProgramsPage() {
                   >
                     {uploading === p.id ? "Uploading..." : "Upload"}
                   </button>
-                </td>
+                </td>)}
               </tr>
             ))}
           </tbody>
