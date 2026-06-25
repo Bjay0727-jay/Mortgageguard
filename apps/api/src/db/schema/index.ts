@@ -318,3 +318,46 @@ export const reportingDeadlines = pgTable("reporting_deadlines", {
   index("deadlines_company_idx").on(t.companyId),
   index("deadlines_due_idx").on(t.dueDate),
 ]);
+
+// ─── INTEGRATIONS ───
+export const integrations = pgTable("integrations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  systemId: varchar("system_id", { length: 50 }).notNull(),
+  systemName: varchar("system_name", { length: 100 }).notNull(),
+  systemType: varchar("system_type", { length: 20 }).notNull(),
+  status: varchar("status", { length: 20 }).default("connected").notNull(),
+  syncDirection: varchar("sync_direction", { length: 20 }),
+  config: text("config"), // JSON sync options
+  clientId: varchar("client_id", { length: 255 }),
+  instanceUrl: text("instance_url"),
+  clientSecretEnc: text("client_secret_enc"),
+  apiKeyEnc: text("api_key_enc"),
+  webhookEnabled: boolean("webhook_enabled").default(false).notNull(),
+  webhookId: varchar("webhook_id", { length: 64 }),
+  webhookSecretEnc: text("webhook_secret_enc"),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSuccessfulSyncAt: timestamp("last_successful_sync_at"),
+  lastError: text("last_error"),
+  connectedAt: timestamp("connected_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("integrations_company_system_idx").on(t.companyId, t.systemId),
+  uniqueIndex("integrations_webhook_idx").on(t.webhookId),
+]);
+
+// ─── INTEGRATION SYNC HISTORY ───
+export const integrationSyncHistory = pgTable("integration_sync_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  integrationId: uuid("integration_id").references(() => integrations.id),
+  systemId: varchar("system_id", { length: 50 }).notNull(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+  status: varchar("status", { length: 20 }).default("running").notNull(),
+  recordsProcessed: integer("records_processed").default(0),
+  errorMessage: text("error_message"),
+}, (t) => [
+  index("sync_history_company_idx").on(t.companyId),
+  index("sync_history_system_idx").on(t.companyId, t.systemId),
+]);
