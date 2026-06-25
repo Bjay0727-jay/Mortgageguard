@@ -256,12 +256,32 @@ export const compliancePrograms = pgTable("compliance_programs", {
   version: varchar("version", { length: 50 }),
   status: programStatusEnum("status").default("missing").notNull(),
   filePath: varchar("file_path", { length: 500 }), // R2 key
+  owner: varchar("owner", { length: 255 }),
+  notes: text("notes"),
   lastReviewedAt: date("last_reviewed_at"),
   nextReviewDue: date("next_review_due"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   index("programs_company_idx").on(t.companyId),
+]);
+
+// ─── COMPLIANCE PROGRAM VERSIONS (upload history) ───
+export const complianceProgramVersions = pgTable("compliance_program_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programId: uuid("program_id").notNull().references(() => compliancePrograms.id),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  version: varchar("version", { length: 50 }).notNull(),
+  filePath: text("file_path").notNull(),
+  fileName: varchar("file_name", { length: 255 }),
+  fileSize: integer("file_size"),
+  mimeType: varchar("mime_type", { length: 100 }),
+  uploadedBy: uuid("uploaded_by").references(() => users.id),
+  isCurrent: boolean("is_current").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("program_versions_program_idx").on(t.programId),
+  index("program_versions_company_idx").on(t.companyId),
 ]);
 
 // ─── VENDOR CONTRACTS ───

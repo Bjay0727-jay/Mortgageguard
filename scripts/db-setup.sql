@@ -201,11 +201,38 @@ CREATE TABLE IF NOT EXISTS compliance_programs (
   version VARCHAR(50),
   status VARCHAR(20) NOT NULL DEFAULT 'missing',
   r2_key TEXT,
+  file_path TEXT,
+  owner VARCHAR(255),
+  notes TEXT,
   last_reviewed_at TIMESTAMPTZ,
   next_review_due TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add lifecycle columns if missing (existing deployments). file_path is what the
+-- API writes on upload; older schemas only had r2_key, which 500'd the upload.
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS file_path TEXT;
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS owner VARCHAR(255);
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- ─── Compliance Program Versions (upload history) ───
+CREATE TABLE IF NOT EXISTS compliance_program_versions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  program_id UUID NOT NULL REFERENCES compliance_programs(id),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  version VARCHAR(50) NOT NULL,
+  file_path TEXT NOT NULL,
+  file_name VARCHAR(255),
+  file_size INTEGER,
+  mime_type VARCHAR(100),
+  uploaded_by UUID REFERENCES users(id),
+  is_current BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_program_versions_program ON compliance_program_versions(program_id);
+CREATE INDEX IF NOT EXISTS idx_program_versions_company ON compliance_program_versions(company_id);
 
 CREATE INDEX IF NOT EXISTS idx_programs_company ON compliance_programs(company_id);
 
