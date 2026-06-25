@@ -81,11 +81,15 @@ CREATE TABLE IF NOT EXISTS state_rules (
   rule_name VARCHAR(255) NOT NULL,
   rule_category VARCHAR(100) NOT NULL,
   description TEXT,
+  applies_to VARCHAR(10) NOT NULL DEFAULT 'both',
   citation TEXT,
   is_active BOOLEAN DEFAULT true,
   effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add applies_to if missing (for existing deployments / seed compatibility)
+ALTER TABLE state_rules ADD COLUMN IF NOT EXISTS applies_to VARCHAR(10) NOT NULL DEFAULT 'both';
 
 CREATE INDEX IF NOT EXISTS idx_state_rules_state ON state_rules(state_code);
 
@@ -101,8 +105,12 @@ CREATE TABLE IF NOT EXISTS required_documents (
   loan_type_filter VARCHAR(20),
   loan_purpose_filter VARCHAR(30),
   loan_product_filter VARCHAR(20),
+  description TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add description if missing (for existing deployments / seed compatibility)
+ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS description TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_req_docs_rule ON required_documents(state_rule_id);
 
@@ -202,3 +210,29 @@ CREATE TABLE IF NOT EXISTS integrations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_integrations_company ON integrations(company_id);
+
+-- ─────────────────────────────────────────────────────
+-- Initial Admin Account (onboarding seed)
+--
+-- Creates a default company + admin so the app is usable out of the box.
+-- Idempotent: re-running never overwrites an existing company/user.
+--
+--   Email:    admin@mortgageguard.com
+--   Password: MortgageGuard!2026
+--
+-- ⚠️  CHANGE THIS PASSWORD AFTER FIRST LOGIN. The password_hash below is a
+--    PBKDF2-SHA256 (600k iterations) hash in the format the API verifies.
+-- ─────────────────────────────────────────────────────
+INSERT INTO companies (id, name, license_states)
+VALUES ('00000000-0000-0000-0000-000000000001', 'MortgageGuard Demo', ARRAY['TX'])
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO users (company_id, role, name, email, password_hash)
+VALUES (
+  '00000000-0000-0000-0000-000000000001',
+  'company_admin',
+  'Administrator',
+  'admin@mortgageguard.com',
+  'pbkdf2:fbb1fe0714b96255083696366d56f430:6db319fa02ad98fead2083e5d2b29ece42916a91a80ea06d49fd5fd36130f8bd'
+)
+ON CONFLICT (email) DO NOTHING;
