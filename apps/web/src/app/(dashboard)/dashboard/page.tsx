@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -9,10 +9,18 @@ import {
   PIPELINE_STAGES,
   REQUIRED_PROGRAM_SETUP,
   buildSetupChecklist,
+  buildDashboardQuery,
+  deriveTopActions,
+  hasActionableWork,
   getSetupProgress,
   isDefaultAdmin,
+  type DashboardFilters,
   type SetupChecklistItem,
+  type TopAction,
 } from "@/lib/dashboard-setup";
+
+const STATE_OPTIONS = ["TX", "CA", "FL", "NY", "IL"];
+const STATUS_OPTIONS = ["application", "processing", "underwriting", "closing", "post_close", "denied", "withdrawn"];
 
 interface DashboardData {
   examReadiness: {
@@ -31,6 +39,8 @@ interface DashboardData {
     property_state: string;
     status: string;
     compliance_score: number;
+    docs_required?: number;
+    docs_complete?: number;
   }[];
   programs: { status: string; count: number }[];
 }
@@ -70,13 +80,22 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<DashboardFilters>({});
+
+  const fetchData = useCallback(() => {
+    setLoading(true);
+    setError("");
+    api
+      .get<DashboardData>(`/api/v1/compliance/dashboard${buildDashboardQuery(filters)}`)
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [filters]);
 
   useEffect(() => {
-    api
-      .get<DashboardData>("/api/v1/compliance/dashboard")
-      .then(setData)
-      .catch((e) => setError(e.message));
-  }, []);
+    fetchData();
+  }, [fetchData]);
 
   const setupItems = useMemo(() => {
     if (!data) return [];
@@ -89,27 +108,28 @@ export default function DashboardPage() {
   }, [data, user]);
   const setupProgress = getSetupProgress(setupItems);
 
-  if (error) {
-    return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        {error}
-      </div>
-    );
+  // Surface a hard error only when we have nothing to show; transient refetch
+  // errors while data is on screen are non-blocking.
+  if (error && !data) {
+    return <ErrorState message={error} onRetry={fetchData} />;
   }
 
   if (!data) {
-    return (
-      <div className="flex items-center gap-2 text-gray-400">
-        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        Loading dashboard...
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   const pipelineCounts = new Map(data.pipeline.map((stage) => [stage.status, stage.count]));
   const hasNoLoans = data.examReadiness.totalLoans === 0;
   const noDeadlines = data.upcomingDeadlines.length === 0;
   const shouldShowOnboarding = setupProgress.complete < setupProgress.total;
+  const topActionsInput = {
+    attentionLoans: data.attentionLoans,
+    programs: data.programs,
+    upcomingDeadlines: data.upcomingDeadlines,
+    passingLoans: data.examReadiness.passingLoans,
+  };
+  const showTopActions = !hasNoLoans || hasActionableWork(topActionsInput);
+  const hasFilters = Boolean(filters.state || filters.status || filters.from || filters.to);
 
   return (
     <div className="space-y-6">
@@ -162,15 +182,21 @@ export default function DashboardPage() {
 
       {shouldShowOnboarding && <OnboardingPanel items={setupItems} />}
 
-      <RecommendedActions
-        actions={[
-          { title: "Create first loan", description: "Start a file and generate its initial compliance checklist.", href: "/loans", cta: "Create Loan", priority: "High" },
-          { title: "Add required programs", description: "Upload AML, Red Flags, InfoSec, compensation, and remote work policies.", href: "/programs", cta: "Set Up Programs", priority: "High" },
-          { title: "Configure reporting deadlines", description: "Track quarterly and state-specific filing due dates.", href: "/reports", cta: "Configure Deadlines", priority: "Medium" },
-          { title: "Invite users", description: "Bring in processors, originators, compliance officers, and reviewers.", href: "/users", cta: "Invite Team", priority: "Medium" },
-          { title: "Connect LOS", description: "Sync loan data and documents from your origination system.", href: "/integrations", cta: "Connect", priority: "Low" },
-        ]}
-      />
+      {shouldShowOnboarding && (
+        <RecommendedActions
+          actions={[
+            { title: "Create first loan", description: "Start a file and generate its initial compliance checklist.", href: "/loans", cta: "Create Loan", priority: "High" },
+            { title: "Add required programs", description: "Upload AML, Red Flags, InfoSec, compensation, and remote work policies.", href: "/programs", cta: "Set Up Programs", priority: "High" },
+            { title: "Configure reporting deadlines", description: "Track quarterly and state-specific filing due dates.", href: "/reports", cta: "Configure Deadlines", priority: "Medium" },
+            { title: "Invite users", description: "Bring in processors, originators, compliance officers, and reviewers.", href: "/users", cta: "Invite Team", priority: "Medium" },
+            { title: "Connect LOS", description: "Sync loan data and documents from your origination system.", href: "/integrations", cta: "Connect", priority: "Low" },
+          ]}
+        />
+      )}
+
+      <FilterBar filters={filters} onChange={setFilters} loading={loading} hasFilters={hasFilters} />
+
+      {showTopActions && <TopActions actions={deriveTopActions(topActionsInput)} />}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard href="/dashboard" label="Exam Readiness" value={`${data.examReadiness.avgScore}%`} color={scoreColor(data.examReadiness.avgScore)} bgColor={scoreBg(data.examReadiness.avgScore)} icon="✓" />
@@ -190,7 +216,11 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-3">
               {data.attentionLoans.map((loan) => (
-                <div key={loan.id} className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+                <Link
+                  key={loan.id}
+                  href={`/loans/${loan.id}`}
+                  className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 transition hover:bg-[#E8EEF7] focus:outline-none focus:ring-2 focus:ring-[#1B3A6B]"
+                >
                   <div className="flex items-center gap-3">
                     <ScoreRing score={loan.compliance_score} />
                     <div>
@@ -199,7 +229,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <StatusBadge status={loan.status} />
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -211,13 +241,17 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-3">
               {data.upcomingDeadlines.map((d) => (
-                <div key={d.id} className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+                <Link
+                  key={d.id}
+                  href="/reports"
+                  className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 transition hover:bg-[#E8EEF7] focus:outline-none focus:ring-2 focus:ring-[#1B3A6B]"
+                >
                   <div>
                     <p className="text-sm font-medium text-gray-900">{d.report_type}</p>
                     <p className="text-xs text-gray-500">Due: {d.due_date}</p>
                   </div>
                   <StatusBadge status={d.status} />
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -392,6 +426,117 @@ function ScoreRing({ score }: { score: number }) {
         <circle cx="20" cy="20" r="16" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} transform="rotate(-90 20 20)" />
       </svg>
       <span className="absolute text-xs font-bold" style={{ color }}>{score}</span>
+    </div>
+  );
+}
+
+function FilterBar({ filters, onChange, loading, hasFilters }: { filters: DashboardFilters; onChange: (f: DashboardFilters) => void; loading: boolean; hasFilters: boolean }) {
+  const selectCls = "rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/10";
+  return (
+    <section className="flex flex-wrap items-end gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-1">
+        <label htmlFor="f-state" className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">State</label>
+        <select id="f-state" className={selectCls} value={filters.state || ""} onChange={(e) => onChange({ ...filters, state: e.target.value || undefined })}>
+          <option value="">All States</option>
+          {STATE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label htmlFor="f-status" className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Loan Status</label>
+        <select id="f-status" className={selectCls} value={filters.status || ""} onChange={(e) => onChange({ ...filters, status: e.target.value || undefined })}>
+          <option value="">All Statuses</option>
+          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}
+        </select>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label htmlFor="f-from" className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">From</label>
+        <input id="f-from" type="date" className={selectCls} value={filters.from || ""} onChange={(e) => onChange({ ...filters, from: e.target.value || undefined })} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label htmlFor="f-to" className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">To</label>
+        <input id="f-to" type="date" className={selectCls} value={filters.to || ""} onChange={(e) => onChange({ ...filters, to: e.target.value || undefined })} />
+      </div>
+      {hasFilters && (
+        <button onClick={() => onChange({})} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+          Clear filters
+        </button>
+      )}
+      {loading && (
+        <span className="flex items-center gap-2 text-xs text-gray-400">
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          Updating…
+        </span>
+      )}
+    </section>
+  );
+}
+
+function TopActions({ actions }: { actions: TopAction[] }) {
+  const priorityCls: Record<TopAction["priority"], string> = {
+    High: "bg-red-100 text-red-700",
+    Medium: "bg-amber-100 text-amber-700",
+    Low: "bg-blue-100 text-blue-700",
+  };
+  return (
+    <section className="rounded-2xl border border-[#1B3A6B]/15 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-bold text-[#1B3A6B]">Top actions</h2>
+        <span className="text-xs text-gray-400">What needs your attention now</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {actions.map((action) => {
+          const active = action.count > 0;
+          return (
+            <Link
+              key={action.id}
+              href={action.href}
+              className={`group block rounded-xl border p-4 transition focus:outline-none focus:ring-2 focus:ring-[#1B3A6B] ${active ? "border-[#1B3A6B]/20 bg-[#E8EEF7] hover:-translate-y-0.5 hover:shadow-md" : "border-gray-200 bg-gray-50"}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${active ? priorityCls[action.priority] : "bg-gray-200 text-gray-500"}`}>{action.priority}</span>
+                <span className={`flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-sm font-bold ${active ? "bg-[#1B3A6B] text-white" : "bg-gray-200 text-gray-500"}`}>{action.count}</span>
+              </div>
+              <h3 className="mt-3 text-sm font-semibold text-gray-900">{action.title}</h3>
+              <p className="mt-1 min-h-[40px] text-xs leading-5 text-gray-500">{action.description}</p>
+              <span className={`mt-2 inline-flex text-xs font-semibold ${active ? "text-[#1B3A6B] group-hover:underline" : "text-gray-400"}`}>
+                {active ? `${action.cta} →` : "Nothing to do"}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+      <p className="text-2xl">⚠️</p>
+      <p className="mt-2 text-sm font-semibold text-red-800">We couldn&apos;t load your dashboard</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-red-700">{message}</p>
+      <button onClick={onRetry} className="mt-4 inline-flex rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function SkeletonBlock({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-xl bg-gray-200/70 ${className}`} />;
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
+      <SkeletonBlock className="h-44 w-full" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => <SkeletonBlock key={i} className="h-28" />)}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SkeletonBlock className="h-56" />
+        <SkeletonBlock className="h-56" />
+      </div>
     </div>
   );
 }

@@ -13,13 +13,35 @@ complianceRoutes.get("/rules/:state", async (c) => {
 complianceRoutes.get("/dashboard", async (c) => {
   const user = c.get("user");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
-  const [loanStats] = await sql`SELECT COUNT(*) as total, AVG(compliance_score) as avg_score, COUNT(CASE WHEN compliance_score < 50 THEN 1 END) as critical, COUNT(CASE WHEN compliance_score >= 80 THEN 1 END) as passing, SUM(CAST(loan_amount AS NUMERIC)) as total_volume FROM loans WHERE company_id = ${user.companyId} AND is_deleted = false AND status NOT IN ('denied','withdrawn')`;
-  const byStage = await sql`SELECT status, COUNT(*) as count FROM loans WHERE company_id = ${user.companyId} AND is_deleted = false GROUP BY status`;
-  const byState = await sql`SELECT property_state, COUNT(*) as count, AVG(compliance_score) as avg_score FROM loans WHERE company_id = ${user.companyId} AND is_deleted = false GROUP BY property_state`;
+
+  // Optional dashboard filters. All are no-ops when omitted, so the existing
+  // response shape and unfiltered behavior are preserved.
+  const state = c.req.query("state")?.toUpperCase() || null;
+  const status = c.req.query("status") || null;
+  const from = c.req.query("from") || null; // YYYY-MM-DD (application_date >=)
+  const to = c.req.query("to") || null;     // YYYY-MM-DD (application_date <=)
+
+  // Shared scope fragment applied to every loan query (company + soft-delete +
+  // the optional filters). Status is applied separately because some queries
+  // have their own status semantics.
+  const scope = sql`
+    company_id = ${user.companyId} AND is_deleted = false
+    ${state ? sql`AND property_state = ${state}` : sql``}
+    ${from ? sql`AND application_date >= ${from}` : sql``}
+    ${to ? sql`AND application_date <= ${to}` : sql``}
+  `;
+  // When a specific status is requested it overrides the default "active loans"
+  // filter used for exam-readiness metrics.
+  const metricStatus = status ? sql`AND status = ${status}` : sql`AND status NOT IN ('denied','withdrawn')`;
+  const attentionStatus = status ? sql`AND status = ${status}` : sql``;
+
+  const [loanStats] = await sql`SELECT COUNT(*) as total, AVG(compliance_score) as avg_score, COUNT(CASE WHEN compliance_score < 50 THEN 1 END) as critical, COUNT(CASE WHEN compliance_score >= 80 THEN 1 END) as passing, SUM(CAST(loan_amount AS NUMERIC)) as total_volume FROM loans WHERE ${scope} ${metricStatus}`;
+  const byStage = await sql`SELECT status, COUNT(*) as count FROM loans WHERE ${scope} GROUP BY status`;
+  const byState = await sql`SELECT property_state, COUNT(*) as count, AVG(compliance_score) as avg_score FROM loans WHERE ${scope} GROUP BY property_state`;
   const programStats = await sql`SELECT status, COUNT(*) as count FROM compliance_programs WHERE company_id = ${user.companyId} GROUP BY status`;
-  const upcomingDeadlines = await sql`SELECT * FROM reporting_deadlines WHERE company_id = ${user.companyId} AND status IN ('upcoming','in_progress') ORDER BY due_date LIMIT 5`;
-  const attentionLoans = await sql`SELECT id, loan_number, borrower_last_name || ', ' || borrower_first_name as borrower, property_state, status, compliance_score, docs_complete, docs_required FROM loans WHERE company_id = ${user.companyId} AND is_deleted = false AND compliance_score < 80 ORDER BY compliance_score LIMIT 5`;
-  return c.json({ examReadiness: { avgScore: Math.round(Number(loanStats.avg_score) || 0), totalLoans: Number(loanStats.total), criticalAlerts: Number(loanStats.critical), passingLoans: Number(loanStats.passing), totalVolume: Number(loanStats.total_volume) || 0 }, pipeline: byStage, stateBreakdown: byState, programs: programStats, upcomingDeadlines, attentionLoans });
+  const upcomingDeadlines = await sql`SELECT * FROM reporting_deadlines WHERE company_id = ${user.companyId} ${state ? sql`AND (state_code = ${state} OR state_code IS NULL)` : sql``} AND status IN ('upcoming','in_progress') ORDER BY due_date LIMIT 5`;
+  const attentionLoans = await sql`SELECT id, loan_number, borrower_last_name || ', ' || borrower_first_name as borrower, property_state, status, compliance_score, docs_complete, docs_required FROM loans WHERE ${scope} ${attentionStatus} AND compliance_score < 80 ORDER BY compliance_score LIMIT 5`;
+  return c.json({ examReadiness: { avgScore: Math.round(Number(loanStats.avg_score) || 0), totalLoans: Number(loanStats.total), criticalAlerts: Number(loanStats.critical), passingLoans: Number(loanStats.passing), totalVolume: Number(loanStats.total_volume) || 0 }, pipeline: byStage, stateBreakdown: byState, programs: programStats, upcomingDeadlines, attentionLoans, filters: { state, status, from, to } });
 });
 
 complianceRoutes.post("/recalculate/:loanId", async (c) => {
