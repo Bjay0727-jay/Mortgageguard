@@ -19,23 +19,32 @@ export function rateLimit(opts: RateLimitOptions) {
     const ip = c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "unknown";
     const key = `${keyPrefix}:${ip}`;
 
-    const current = await c.env.SESSIONS.get(key);
-    const count = current ? parseInt(current, 10) : 0;
+    try {
+      const current = await c.env.SESSIONS.get(key);
+      const count = current ? parseInt(current, 10) : 0;
 
-    if (count >= maxRequests) {
-      return c.json(
-        { error: "Too many requests", retryAfter: windowSec },
-        429,
+      if (count >= maxRequests) {
+        return c.json(
+          { error: "Too many requests", retryAfter: windowSec },
+          429,
+        );
+      }
+
+      // Increment counter with TTL
+      await c.env.SESSIONS.put(key, String(count + 1), {
+        expirationTtl: windowSec,
+      });
+
+      c.header("X-RateLimit-Limit", String(maxRequests));
+      c.header("X-RateLimit-Remaining", String(maxRequests - count - 1));
+    } catch (err) {
+      // Fail open: a rate limiter must never take down the API. If the KV
+      // store is unavailable (e.g. the daily write limit is exceeded), allow
+      // the request through rather than 500-ing.
+      console.error(
+        `[RATE-LIMIT] KV unavailable, failing open: ${err instanceof Error ? err.message : err}`,
       );
     }
-
-    // Increment counter with TTL
-    await c.env.SESSIONS.put(key, String(count + 1), {
-      expirationTtl: windowSec,
-    });
-
-    c.header("X-RateLimit-Limit", String(maxRequests));
-    c.header("X-RateLimit-Remaining", String(maxRequests - count - 1));
 
     await next();
   });
