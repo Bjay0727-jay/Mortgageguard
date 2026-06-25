@@ -5,14 +5,38 @@ import postgres from "postgres";
 import { SignJWT, jwtVerify } from "jose";
 import type { Env } from "../env";
 import { AppError } from "../lib/errors";
+import { authMiddleware } from "../middleware/auth";
+import { hashPassword, verifyPassword, resolveChangePassword } from "../lib/passwords";
+import { sha256Hex, validateInvite } from "../lib/invites";
 
 export const authRoutes = new Hono<{ Bindings: Env }>();
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(8) });
-const registerSchema = z.object({
-  email: z.string().email(), password: z.string().min(8), name: z.string().min(1).max(255),
-  companyId: z.string().min(1), nmlsId: z.string().optional(),
-  role: z.enum(["company_admin","qualifying_individual","loan_originator","processor","compliance_officer","read_only"]).default("loan_originator"),
+
+// Public self-registration creates a NEW company and makes the registrant its
+// company_admin. It intentionally does NOT accept companyId or role from the
+// client — joining an existing company or choosing a privileged role is only
+// possible via an admin-issued invite (see /register-invite).
+export const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  name: z.string().min(1).max(255),
+  companyName: z.string().min(1).max(255),
+  nmlsId: z.string().max(20).optional(),
+});
+
+// Invite-based registration. Role/company/email all come from the invite — the
+// client only proves possession of the token and sets their own credentials.
+export const registerInviteSchema = z.object({
+  token: z.string().min(1),
+  name: z.string().min(1).max(255),
+  password: z.string().min(8),
+  nmlsId: z.string().max(20).optional(),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().optional(),
+  newPassword: z.string().min(8),
 });
 
 async function createToken(payload: Record<string, unknown>, secret: string, expiresIn = "24h") {
@@ -26,29 +50,13 @@ async function createToken(payload: Record<string, unknown>, secret: string, exp
   return new SignJWT(payload).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(expiresIn).sign(new TextEncoder().encode(secret));
 }
 
-async function hashPassword(password: string): Promise<string> {
-  // NOTE: Cloudflare Workers (workerd) caps PBKDF2 at 100000 iterations — values
-  // above that throw "iteration counts above 100000 are not supported". Do not
-  // raise this number; verifyPassword must use the same count to match stored hashes.
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  const hash = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, key, 256);
-  const hex = (arr: Uint8Array) => Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
-  return `pbkdf2:${hex(salt)}:${hex(new Uint8Array(hash))}`;
-}
-
-async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  if (!stored.startsWith("pbkdf2:")) return false;
-  const [, saltHex, hashHex] = stored.split(":");
-  const salt = new Uint8Array(saltHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  const hash = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, key, 256);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("") === hashHex;
+function db(env: Env) {
+  return postgres(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
 }
 
 authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
   const { email, password } = c.req.valid("json");
-  const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
+  const sql = db(c.env);
   const [user] = await sql`SELECT u.*, c.name as company_name FROM users u JOIN companies c ON c.id = u.company_id WHERE u.email = ${email} AND u.is_active = true`;
   if (!user) return c.json({ error: "Invalid credentials" }, 401);
   if (!(await verifyPassword(password, user.password_hash))) return c.json({ error: "Invalid credentials" }, 401);
@@ -63,20 +71,83 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
     // refresh is unavailable until KV writes recover.
     console.error(`[AUTH] Could not persist refresh token (KV unavailable): ${err instanceof Error ? err.message : err}`);
   }
-  return c.json({ token, refreshToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, companyId: user.company_id, companyName: user.company_name, nmlsId: user.nmls_id } });
+  return c.json({ token, refreshToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, companyId: user.company_id, companyName: user.company_name, nmlsId: user.nmls_id, mustChangePassword: !!user.must_change_password } });
 });
 
 authRoutes.post("/register", zValidator("json", registerSchema), async (c) => {
-  const body = c.req.valid("json");
-  const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
-  const [existing] = await sql`SELECT id FROM users WHERE email = ${body.email}`;
+  const { email, password, name, companyName, nmlsId } = c.req.valid("json");
+  const sql = db(c.env);
+  const [existing] = await sql`SELECT id FROM users WHERE email = ${email}`;
   if (existing) return c.json({ error: "Email already registered" }, 409);
-  const [company] = await sql`SELECT id, name FROM companies WHERE id = ${body.companyId}`;
-  if (!company) return c.json({ error: "Company not found" }, 404);
-  const passwordHash = await hashPassword(body.password);
-  const [user] = await sql`INSERT INTO users (company_id, nmls_id, role, name, email, password_hash) VALUES (${body.companyId}, ${body.nmlsId || null}, ${body.role}, ${body.name}, ${body.email}, ${passwordHash}) RETURNING id, name, email, role, company_id, nmls_id`;
+  const passwordHash = await hashPassword(password);
+  // New company + its first admin. Role is fixed server-side.
+  const [company] = await sql`INSERT INTO companies (name) VALUES (${companyName}) RETURNING id, name`;
+  const [user] = await sql`INSERT INTO users (company_id, nmls_id, role, name, email, password_hash) VALUES (${company.id}, ${nmlsId || null}, 'company_admin', ${name}, ${email}, ${passwordHash}) RETURNING id, name, email, role, company_id, nmls_id`;
   const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);
-  return c.json({ token, user: { ...user, companyName: company.name } }, 201);
+  return c.json({ token, user: { ...user, companyName: company.name, mustChangePassword: false } }, 201);
+});
+
+// ─── Invite lookup (public): validate a token and surface who it's for ───
+authRoutes.get("/invite/:token", async (c) => {
+  const token = c.req.param("token");
+  const tokenHash = await sha256Hex(token);
+  const sql = db(c.env);
+  const [invite] = await sql`
+    SELECT i.email, i.role, i.expires_at, i.accepted_at, i.revoked_at, c.name AS company_name
+    FROM user_invitations i JOIN companies c ON c.id = i.company_id
+    WHERE i.token_hash = ${tokenHash}`;
+  const check = validateInvite(invite, Date.now());
+  if (!check.ok) return c.json({ error: check.error, code: check.code }, check.status as 404);
+  return c.json({ email: invite.email, role: invite.role, companyName: invite.company_name, expiresAt: invite.expires_at });
+});
+
+// ─── Invite-based registration (public): role/company/email come from invite ───
+authRoutes.post("/register-invite", zValidator("json", registerInviteSchema), async (c) => {
+  const { token, name, password, nmlsId } = c.req.valid("json");
+  const tokenHash = await sha256Hex(token);
+  const sql = db(c.env);
+  const [invite] = await sql`
+    SELECT i.id, i.company_id, i.email, i.role, i.expires_at, i.accepted_at, i.revoked_at, c.name AS company_name
+    FROM user_invitations i JOIN companies c ON c.id = i.company_id
+    WHERE i.token_hash = ${tokenHash}`;
+  const check = validateInvite(invite, Date.now());
+  if (!check.ok) return c.json({ error: check.error, code: check.code }, check.status as 404);
+
+  const [existing] = await sql`SELECT id FROM users WHERE email = ${invite.email}`;
+  if (existing) return c.json({ error: "An account with this email already exists. Please sign in." }, 409);
+
+  const passwordHash = await hashPassword(password);
+  // company_id, role and email are taken from the invite ONLY — never the client.
+  const [user] = await sql`
+    INSERT INTO users (company_id, nmls_id, role, name, email, password_hash)
+    VALUES (${invite.company_id}, ${nmlsId || null}, ${invite.role}, ${name}, ${invite.email}, ${passwordHash})
+    RETURNING id, name, email, role, company_id, nmls_id`;
+  // Mark accepted; the accepted_at IS NULL guard prevents a double redemption race.
+  await sql`UPDATE user_invitations SET accepted_at = NOW() WHERE id = ${invite.id} AND accepted_at IS NULL`;
+
+  const jwt = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);
+  return c.json({ token: jwt, user: { ...user, companyName: invite.company_name, mustChangePassword: false } }, 201);
+});
+
+// ─── Change password (authenticated) ───
+authRoutes.post("/change-password", authMiddleware, zValidator("json", changePasswordSchema), async (c) => {
+  const { currentPassword, newPassword } = c.req.valid("json");
+  const authUser = c.get("user");
+  const sql = db(c.env);
+  const [user] = await sql`SELECT id, password_hash, must_change_password FROM users WHERE id = ${authUser.userId} AND is_active = true`;
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const check = await resolveChangePassword({
+    mustChangePassword: !!user.must_change_password,
+    currentPassword,
+    storedHash: user.password_hash,
+    verify: verifyPassword,
+  });
+  if (!check.ok) return c.json({ error: check.error, code: check.code }, check.status as 400);
+
+  const passwordHash = await hashPassword(newPassword);
+  await sql`UPDATE users SET password_hash = ${passwordHash}, must_change_password = false, updated_at = NOW() WHERE id = ${user.id}`;
+  return c.json({ success: true });
 });
 
 authRoutes.post("/refresh", async (c) => {
@@ -87,7 +158,7 @@ authRoutes.post("/refresh", async (c) => {
     if (payload.type !== "refresh") return c.json({ error: "Invalid token type" }, 401);
     const stored = await c.env.SESSIONS.get(`refresh:${payload.sub}`);
     if (stored !== refreshToken) return c.json({ error: "Session expired" }, 401);
-    const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
+    const sql = db(c.env);
     const [user] = await sql`SELECT * FROM users WHERE id = ${payload.sub as string} AND is_active = true`;
     if (!user) return c.json({ error: "User not found" }, 401);
     const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);

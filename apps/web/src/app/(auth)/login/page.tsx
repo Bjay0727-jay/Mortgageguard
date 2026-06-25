@@ -19,8 +19,8 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
-      router.push("/dashboard");
+      const u = await login(email, password);
+      router.push(u.mustChangePassword ? "/change-password" : "/dashboard");
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {

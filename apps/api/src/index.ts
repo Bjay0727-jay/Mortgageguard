@@ -18,6 +18,7 @@ import { programRoutes } from "./routes/programs";
 import { reportRoutes } from "./routes/reports";
 import { integrationRoutes } from "./routes/integrations";
 import { authRoutes } from "./routes/auth";
+import { userRoutes } from "./routes/users";
 import { processComplianceEvent } from "./services/compliance-engine";
 import { processAuditEvent } from "./services/audit-trail";
 import { AppError } from "./lib/errors";
@@ -70,6 +71,7 @@ app.route("/api/v1/documents", documentRoutes);
 app.route("/api/v1/programs", programRoutes);
 app.route("/api/v1/reports", reportRoutes);
 app.route("/api/v1/integrations", integrationRoutes);
+app.route("/api/v1/users", userRoutes);
 
 // ─── 404 Handler ───
 app.notFound((c) => c.json({ error: "Not found", path: c.req.path }, 404));

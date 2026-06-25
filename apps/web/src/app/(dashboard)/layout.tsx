@@ -23,6 +23,8 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login");
+    } else if (!loading && user?.mustChangePassword) {
+      router.push("/change-password");
     }
   }, [user, loading, router]);
 

@@ -67,12 +67,32 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 255 }).notNull(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
+  mustChangePassword: boolean("must_change_password").default(false).notNull(),
   lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   uniqueIndex("users_email_idx").on(t.email),
   index("users_company_idx").on(t.companyId),
+]);
+
+// ─── USER INVITATIONS ───
+// Admin-issued invites; only the token hash is persisted.
+export const userInvitations = pgTable("user_invitations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  email: varchar("email", { length: 255 }).notNull(),
+  role: userRoleEnum("role").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  invitedBy: uuid("invited_by").references(() => users.id),
+  expiresAt: timestamp("expires_at").notNull(),
+  acceptedAt: timestamp("accepted_at"),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("invitations_token_idx").on(t.tokenHash),
+  index("invitations_company_idx").on(t.companyId),
+  index("invitations_email_idx").on(t.email),
 ]);
 
 // ─── LOANS ───
