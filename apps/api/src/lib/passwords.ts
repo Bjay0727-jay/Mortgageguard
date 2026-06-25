@@ -2,10 +2,14 @@
 // MortgageGuard — Password hashing (PBKDF2-SHA256)
 // ─────────────────────────────────────────────────────
 //
-// IMPORTANT: MortgageGuard stores PBKDF2-SHA256 hashes with 600000 iterations.
-// hashPassword and verifyPassword must always use the same count so
-// stored hashes keep verifying.
-export const PBKDF2_ITERATIONS = 600000;
+// IMPORTANT: Cloudflare Workers (workerd) HARD-CAPS PBKDF2 at 100000 iterations.
+// Anything higher throws "Pbkdf2 failed: iteration counts above 100000 are not
+// supported (requested ...)" at runtime, which 500s EVERY login/register. The
+// OWASP-recommended 600000 is therefore NOT usable on this platform — do not
+// raise this value. hashPassword and verifyPassword must use the same count so
+// stored hashes keep verifying. (Regressing this to 600k has taken prod down
+// twice; see the workerd limit before changing it.)
+export const PBKDF2_ITERATIONS = 100000;
 
 const hex = (arr: Uint8Array) =>
   Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
