@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import postgres from "postgres";
 import type { Env } from "../env";
+import { requireCapability } from "../middleware/auth";
 export const documentRoutes = new Hono<{ Bindings: Env }>();
 
-documentRoutes.post("/upload/:loanId", async (c) => {
+documentRoutes.post("/upload/:loanId", requireCapability("uploadLoanDocument"), async (c) => {
   const user = c.get("user");
   const loanId = c.req.param("loanId");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
@@ -64,7 +65,7 @@ documentRoutes.get("/:loanId/:docId/download", async (c) => {
   return new Response(obj.body, { headers: { "Content-Type": doc.mime_type || "application/octet-stream", "Content-Disposition": `attachment; filename="${doc.file_name}"` } });
 });
 
-documentRoutes.delete("/:loanId/:docId", async (c) => {
+documentRoutes.delete("/:loanId/:docId", requireCapability("deleteLoanDocument"), async (c) => {
   const user = c.get("user");
   const docId = c.req.param("docId");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });

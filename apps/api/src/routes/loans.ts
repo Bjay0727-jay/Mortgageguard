@@ -8,6 +8,7 @@ import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import type { Env } from "../env";
 import { evaluateGate, calculateScore, generateChecklist } from "../services/compliance-engine";
+import { requireCapability } from "../middleware/auth";
 
 export const loanRoutes = new Hono<{ Bindings: Env }>();
 
@@ -85,7 +86,7 @@ loanRoutes.get("/", async (c) => {
 });
 
 // ─── POST /api/v1/loans — Create a new loan ───
-loanRoutes.post("/", zValidator("json", createLoanSchema), async (c) => {
+loanRoutes.post("/", requireCapability("createLoan"), zValidator("json", createLoanSchema), async (c) => {
   const user = c.get("user");
   const body = c.req.valid("json");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
@@ -214,7 +215,7 @@ loanRoutes.get("/:id/score", async (c) => {
 });
 
 // ─── POST /api/v1/loans/:id/advance — Advance pipeline stage ───
-loanRoutes.post("/:id/advance", zValidator("json", advanceStageSchema), async (c) => {
+loanRoutes.post("/:id/advance", requireCapability("advanceLoanStage"), zValidator("json", advanceStageSchema), async (c) => {
   const user = c.get("user");
   const loanId = c.req.param("id");
   const { targetStage } = c.req.valid("json");

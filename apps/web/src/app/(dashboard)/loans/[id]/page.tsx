@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { ScoreBadge } from "@/components/score-badge";
 import { StatusBadge } from "@/components/status-badge";
+import { useCapabilities } from "@/lib/capabilities";
 
 interface Loan {
   id: string;
@@ -62,6 +63,7 @@ export default function LoanDetailPage() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [tab, setTab] = useState<"details" | "checklist" | "timeline">("details");
   const [error, setError] = useState("");
+  const { can } = useCapabilities();
 
   useEffect(() => {
     api.get<{ loan: Loan }>(`/api/v1/loans/${id}`).then((d) => setLoan(d.loan)).catch((e) => setError(e.message));
@@ -91,6 +93,9 @@ export default function LoanDetailPage() {
         <h1 className="text-2xl font-bold text-gray-900">{loan.loan_number}</h1>
         <StatusBadge status={loan.status} />
         <ScoreBadge score={loan.compliance_score} />
+        {can("advanceLoanStage") && (
+          <button className="ml-auto rounded-lg bg-[#1B3A6B] px-3 py-2 text-sm font-medium text-white">Advance Stage</button>
+        )}
       </div>
 
       {/* Borrower + Property summary */}
@@ -166,6 +171,7 @@ export default function LoanDetailPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Source</th>
                 <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Stage</th>
                 <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Status</th>
+                {can("uploadLoanDocument") && <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Action</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -188,6 +194,9 @@ export default function LoanDetailPage() {
                       </span>
                     )}
                   </td>
+                  {can("uploadLoanDocument") && (
+                    <td className="px-4 py-3"><button className="rounded-md bg-[#1B3A6B] px-3 py-1.5 text-xs font-medium text-white">Upload</button></td>
+                  )}
                 </tr>
               ))}
             </tbody>

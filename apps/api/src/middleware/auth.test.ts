@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { SignJWT } from "jose";
-import { authMiddleware, requireRole } from "./auth";
+import { authMiddleware, requireCapability, requireRole } from "./auth";
 import { createMockEnv } from "../__tests__/helpers";
 import type { Env } from "../env";
 
@@ -27,6 +27,9 @@ function createTestApp() {
   app.use("/admin/*", authMiddleware);
   app.use("/admin/*", requireRole("company_admin"));
   app.get("/admin/panel", (c) => c.json({ admin: true }));
+
+  app.use("/loans/*", authMiddleware);
+  app.post("/loans", requireCapability("createLoan"), (c) => c.json({ created: true }));
 
   return app;
 }
@@ -127,5 +130,39 @@ describe("requireRole", () => {
     expect(res.status).toBe(403);
     const body = await res.json() as any;
     expect(body.error).toContain("permissions");
+  });
+});
+
+
+describe("requireCapability", () => {
+  const env = createMockEnv();
+
+  it.each([
+    ["company_admin", true],
+    ["qualifying_individual", true],
+    ["loan_originator", true],
+    ["processor", false],
+    ["compliance_officer", false],
+    ["read_only", false],
+  ])("enforces createLoan for %s", async (role, allowed) => {
+    const app = createTestApp();
+    const token = await makeToken({
+      sub: `${role}-1`,
+      companyId: "c1",
+      email: `${role}@co.com`,
+      role,
+    });
+
+    const res = await app.request(
+      "/loans",
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      env,
+    );
+
+    expect(res.status).toBe(allowed ? 200 : 403);
+    if (!allowed) {
+      const body = await res.json() as any;
+      expect(body.requiredCapability).toBe("createLoan");
+    }
   });
 });
