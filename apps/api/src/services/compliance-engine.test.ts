@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { SCORE_THRESHOLDS, DOC_WEIGHTS, getScoreStatus } from "@mortgageguard/shared";
+import {
+  computeGateSatisfaction,
+  isGateSatisfyingStatus,
+  GATE_SATISFYING_DOCUMENT_STATUSES,
+} from "./compliance-engine";
+
+const REQ = [
+  { requiredDocumentId: "r1", documentType: "appraisal", displayName: "Appraisal" },
+];
+const t = (offsetMs: number) => new Date(1_700_000_000_000 + offsetMs).toISOString();
 
 describe("compliance engine - score thresholds", () => {
   it("returns passing for scores >= 80", () => {
@@ -189,5 +199,75 @@ describe("compliance engine - gate evaluation logic", () => {
     expect(result.satisfiedCount).toBe(2);
     expect(result.requiredCount).toBe(3);
     expect(result.unsatisfied).toHaveLength(1);
+  });
+});
+
+describe("computeGateSatisfaction - only current valid documents satisfy", () => {
+  it("valid statuses are exactly uploaded/signed/delivered", () => {
+    expect([...GATE_SATISFYING_DOCUMENT_STATUSES]).toEqual(["uploaded", "signed", "delivered"]);
+    for (const s of ["uploaded", "signed", "delivered"]) expect(isGateSatisfyingStatus(s)).toBe(true);
+    for (const s of ["pending", "rejected", "expired", "superseded", "replaced", "quarantined", "failed", null, undefined, ""]) {
+      expect(isGateSatisfyingStatus(s as any)).toBe(false);
+    }
+  });
+
+  it("an uploaded document satisfies the gate", () => {
+    const r = computeGateSatisfaction({ requirements: REQ, documents: [{ documentType: "appraisal", status: "uploaded", uploadedAt: t(0) }] });
+    expect(r.unsatisfied).toHaveLength(0);
+    expect(r.satisfiedCount).toBe(1);
+  });
+
+  it("signed and delivered documents satisfy the gate", () => {
+    expect(computeGateSatisfaction({ requirements: REQ, documents: [{ documentType: "appraisal", status: "signed", uploadedAt: t(0) }] }).unsatisfied).toHaveLength(0);
+    expect(computeGateSatisfaction({ requirements: REQ, documents: [{ documentType: "appraisal", status: "delivered", uploadedAt: t(0) }] }).unsatisfied).toHaveLength(0);
+  });
+
+  it("a rejected document does NOT satisfy the gate", () => {
+    const r = computeGateSatisfaction({ requirements: REQ, documents: [{ documentType: "appraisal", status: "rejected", uploadedAt: t(0) }] });
+    expect(r.unsatisfied).toHaveLength(1);
+    expect(r.unsatisfied[0].documentType).toBe("appraisal");
+  });
+
+  it("an expired document does NOT satisfy the gate", () => {
+    const r = computeGateSatisfaction({ requirements: REQ, documents: [{ documentType: "appraisal", status: "expired", uploadedAt: t(0) }] });
+    expect(r.unsatisfied).toHaveLength(1);
+  });
+
+  it("a deleted document (no row remains) does NOT satisfy the gate", () => {
+    const r = computeGateSatisfaction({ requirements: REQ, documents: [] });
+    expect(r.unsatisfied).toHaveLength(1);
+  });
+
+  it("only the LATEST document per type counts: stale valid + newer rejected => unsatisfied", () => {
+    const r = computeGateSatisfaction({
+      requirements: REQ,
+      documents: [
+        { documentType: "appraisal", status: "uploaded", uploadedAt: t(0) },   // old valid (superseded)
+        { documentType: "appraisal", status: "rejected", uploadedAt: t(1000) }, // newest, invalid
+      ],
+    });
+    expect(r.unsatisfied).toHaveLength(1);
+  });
+
+  it("a new replacement with a valid status satisfies even if the old one was rejected", () => {
+    const r = computeGateSatisfaction({
+      requirements: REQ,
+      documents: [
+        { documentType: "appraisal", status: "rejected", uploadedAt: t(0) },    // old, invalid
+        { documentType: "appraisal", status: "uploaded", uploadedAt: t(1000) }, // newest replacement, valid
+      ],
+    });
+    expect(r.unsatisfied).toHaveLength(0);
+  });
+
+  it("a waived/na compliance check satisfies without a document", () => {
+    const r = computeGateSatisfaction({ requirements: REQ, documents: [], waivedRequiredDocumentIds: ["r1"] });
+    expect(r.unsatisfied).toHaveLength(0);
+  });
+
+  it("no requirements => nothing unsatisfied", () => {
+    const r = computeGateSatisfaction({ requirements: [], documents: [] });
+    expect(r.unsatisfied).toHaveLength(0);
+    expect(r.satisfiedCount).toBe(0);
   });
 });

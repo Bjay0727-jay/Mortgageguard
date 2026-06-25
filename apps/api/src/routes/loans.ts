@@ -10,6 +10,13 @@ import type { Env } from "../env";
 import { evaluateGate, calculateScore, generateChecklist } from "../services/compliance-engine";
 import { requireCapability } from "../middleware/auth";
 import { hasCapability } from "@mortgageguard/shared";
+import {
+  LOAN_STAGES,
+  type LoanStage,
+  type StageReadiness,
+  buildStageReadiness,
+  resolveAdvanceDecision,
+} from "../lib/stage-gate";
 
 export const loanRoutes = new Hono<{ Bindings: Env }>();
 
@@ -34,31 +41,23 @@ const createLoanSchema = z.object({
   lenderNmlsId: z.string().optional(),
 });
 
-const PIPELINE_STAGE_ORDER = ["application", "processing", "underwriting", "closing", "post_close"] as const;
-const TERMINAL_STAGES = ["denied", "withdrawn"] as const;
-const LOAN_STAGES = [...PIPELINE_STAGE_ORDER, ...TERMINAL_STAGES] as const;
-type LoanStage = (typeof LOAN_STAGES)[number];
-
 const advanceStageSchema = z.object({
   targetStage: z.enum(LOAN_STAGES),
   override: z.boolean().optional().default(false),
   reason: z.string().trim().min(1).max(1000).optional(),
 });
 
-function getNextStage(currentStage: string): LoanStage | null {
-  const index = PIPELINE_STAGE_ORDER.indexOf(currentStage as typeof PIPELINE_STAGE_ORDER[number]);
-  if (index < 0 || index >= PIPELINE_STAGE_ORDER.length - 1) return null;
-  return PIPELINE_STAGE_ORDER[index + 1];
-}
-
-function isValidStageTransition(currentStage: string, targetStage: LoanStage): boolean {
-  if ((TERMINAL_STAGES as readonly string[]).includes(currentStage)) return false;
-  if ((TERMINAL_STAGES as readonly string[]).includes(targetStage)) return true;
-  return getNextStage(currentStage) === targetStage;
-}
-
-function formatStage(stage: string): string {
-  return stage.split("_").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+// Single readiness model shared by gate preview and stage advance, so the two
+// can never disagree on `canAdvance`. Combines stage-transition validity with
+// the compliance gate (which itself only counts current valid documents).
+async function evaluateStageAdvanceReadiness(params: {
+  loanId: string;
+  currentStage: string;
+  targetStage: string;
+  env: Env;
+}): Promise<StageReadiness> {
+  const gate = await evaluateGate(params.loanId, params.targetStage, params.env);
+  return buildStageReadiness({ currentStage: params.currentStage, targetStage: params.targetStage, gate });
 }
 
 // ─── GET /api/v1/loans — List loans for company ───
@@ -251,7 +250,10 @@ loanRoutes.get("/:id/score", async (c) => {
 });
 
 // ─── GET /api/v1/loans/:id/gate/:targetStage — Preview stage gate ───
-loanRoutes.get("/:id/gate/:targetStage", async (c) => {
+// Capability policy: gate preview drives the advancement modal, so it requires
+// the same capability as advancing (advanceLoanStage). This is intentional —
+// not an accidental "any authenticated user" endpoint.
+loanRoutes.get("/:id/gate/:targetStage", requireCapability("advanceLoanStage"), async (c) => {
   const user = c.get("user");
   const loanId = c.req.param("id");
   const targetStage = c.req.param("targetStage") as LoanStage;
@@ -265,21 +267,14 @@ loanRoutes.get("/:id/gate/:targetStage", async (c) => {
   `;
   if (!loan) return c.json({ error: "Loan not found" }, 404);
 
-  const warnings: string[] = [];
-  if (!isValidStageTransition(loan.status, targetStage)) {
-    warnings.push((TERMINAL_STAGES as readonly string[]).includes(loan.status)
-      ? `Loan is terminal (${formatStage(loan.status)}) and cannot be advanced.`
-      : `Target stage must be the next stage after ${formatStage(loan.status)}.`);
-  }
-
-  const gate = await evaluateGate(loanId, targetStage, c.env);
-  return c.json({
-    ...gate,
-    canAdvance: gate.canAdvance && warnings.length === 0,
+  // Same decision model the POST /advance endpoint uses.
+  const readiness = await evaluateStageAdvanceReadiness({
+    loanId,
     currentStage: loan.status,
     targetStage,
-    warnings: [...gate.warnings, ...warnings],
+    env: c.env,
   });
+  return c.json(readiness);
 });
 
 // ─── POST /api/v1/loans/:id/advance — Advance pipeline stage ───
@@ -294,57 +289,76 @@ loanRoutes.post("/:id/advance", requireCapability("advanceLoanStage"), zValidato
   `;
   if (!loan) return c.json({ error: "Loan not found" }, 404);
 
-  if (!isValidStageTransition(loan.status, targetStage)) {
-    return c.json({ error: "Invalid stage transition", currentStage: loan.status, targetStage }, 400);
-  }
+  // Identical readiness model to the gate preview endpoint.
+  const readiness = await evaluateStageAdvanceReadiness({
+    loanId,
+    currentStage: loan.status,
+    targetStage,
+    env: c.env,
+  });
 
-  // Evaluate compliance gate
-  const gate = await evaluateGate(loanId, targetStage, c.env);
-  const isOverride = Boolean(override);
+  const decision = resolveAdvanceDecision({
+    readiness,
+    override: Boolean(override),
+    hasOverrideCapability: hasCapability(user.role, "overrideCompliance"),
+    reason,
+  });
 
-  if (!gate.canAdvance) {
-    if (!isOverride) {
+  if (decision.action === "reject") {
+    // Invalid transition / terminal: return allowed targets, no gate (not overrideable).
+    if (decision.code === "INVALID_TRANSITION" || decision.code === "LOAN_TERMINAL") {
       return c.json({
-        error: "Cannot advance — compliance gate not satisfied",
-        gate: { ...gate, currentStage: loan.status, targetStage },
-      }, 400);
+        error: decision.error,
+        currentStage: readiness.currentStage,
+        targetStage: readiness.targetStage,
+        allowedTargets: readiness.allowedTargets,
+      }, decision.status as 400);
     }
-    if (!hasCapability(user.role, "overrideCompliance")) {
-      return c.json({ error: "Insufficient permissions", requiredCapability: "overrideCompliance" }, 403);
-    }
-    if (!reason) {
-      return c.json({ error: "Override reason is required" }, 400);
-    }
+    // Unsatisfied gate (or failed override): return the full readiness so the UI
+    // can render blockers, warnings, and unsatisfied documents clearly.
+    return c.json({
+      error: decision.error,
+      code: decision.code,
+      gate: readiness,
+    }, decision.status as 400);
   }
 
-  // Advance the stage
+  // ── Advance ──
   const previousStage = loan.status;
-  const metadata = { override: isOverride && !gate.canAdvance, reason: reason || null, gate };
+  const isOverride = decision.isOverride;
+  const auditMeta = {
+    override: isOverride,
+    reason: decision.auditMeta?.reason ?? null,
+    blockers: decision.auditMeta?.blockers ?? [],
+    warnings: readiness.warnings,
+    unsatisfied: decision.auditMeta?.unsatisfied ?? [],
+    satisfiedCount: readiness.satisfiedCount,
+    requiredCount: readiness.requiredCount,
+  };
+
   await sql`
     UPDATE loans SET status = ${targetStage}, updated_at = NOW()
     WHERE id = ${loanId}
   `;
 
-  // Record timeline event
   await sql`
     INSERT INTO loan_timeline (loan_id, event_type, stage_from, stage_to, description, metadata, performed_by)
-    VALUES (${loanId}, ${metadata.override ? 'stage_override' : 'stage_advanced'}, ${previousStage}, ${targetStage}, ${metadata.override ? 'Override advanced from ' + previousStage + ' to ' + targetStage : 'Advanced from ' + previousStage + ' to ' + targetStage}, ${JSON.stringify(metadata)}, ${user.userId})
+    VALUES (${loanId}, ${isOverride ? 'stage_override' : 'stage_advanced'}, ${previousStage}, ${targetStage}, ${isOverride ? 'Override advanced from ' + previousStage + ' to ' + targetStage : 'Advanced from ' + previousStage + ' to ' + targetStage}, ${JSON.stringify(auditMeta)}, ${user.userId})
   `;
 
-  // Emit audit event
   await c.env.AUDIT_QUEUE.send({
-    type: metadata.override ? "stage.override" : "stage.changed",
+    type: isOverride ? "stage.override" : "stage.changed",
     entityType: "loan",
     entityId: loanId,
     companyId: user.companyId,
     userId: user.userId,
-    action: metadata.override ? "override_stage_gate" : "advance_stage",
-    details: { from: previousStage, to: targetStage, ...metadata },
+    action: isOverride ? "override_stage_gate" : "advance_stage",
+    details: { from: previousStage, to: targetStage, ...auditMeta },
     ipAddress: c.req.header("cf-connecting-ip") || "unknown",
     timestamp: new Date().toISOString(),
   });
 
-  return c.json({ success: true, previousStage, newStage: targetStage, gate, override: metadata.override });
+  return c.json({ success: true, previousStage, newStage: targetStage, gate: readiness, override: isOverride });
 });
 
 // ─── GET /api/v1/loans/:id/timeline — Get loan event history ───

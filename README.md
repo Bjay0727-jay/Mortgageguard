@@ -81,6 +81,29 @@ A compliance-first CRM for mortgage brokers, lenders, and servicers. Dynamically
 ## Database Schema
 12 tables, 17 enums. See `apps/api/src/db/schema/index.ts`.
 
+## Stage Gate Behavior
+- Gate preview (`GET /loans/:id/gate/:targetStage`) and stage advancement
+  (`POST /loans/:id/advance`) use the **same** readiness logic
+  (`buildStageReadiness` in `apps/api/src/lib/stage-gate.ts`), so `canAdvance`
+  can never disagree between the two.
+- **Blockers** prevent advancement; **warnings** are informational only.
+  `canAdvance` is true only when there are zero blockers and no unsatisfied
+  required documents.
+- Missing required documents block advancement.
+- Only **current valid** documents satisfy a gate. Valid statuses are
+  `uploaded`, `signed`, `delivered` (`GATE_SATISFYING_DOCUMENT_STATUSES`).
+- Rejected / expired / superseded / deleted documents do **not** satisfy gates.
+  On replacement, only the latest document per type (by `uploaded_at`) is
+  considered, so stale rows never count.
+- No configured mandatory requirements emits a warning but does **not** block
+  advancement (empty/demo environments shouldn't hard-fail).
+- Gate preview is capability-gated with `advanceLoanStage` (the same capability
+  the advancement modal needs).
+- An invalid stage transition is a blocker that is **not** overrideable. Only
+  unsatisfied-document blockers can be overridden, and only with the
+  `overrideCompliance` capability plus a reason; the override audit event
+  records the blockers, warnings, unsatisfied documents, and reason.
+
 ## Deployment
 See MortgageGuard_MVP_WebUI_Guide_v3.docx for step-by-step instructions using GitHub Web UI.
 
