@@ -221,7 +221,9 @@ CREATE INDEX IF NOT EXISTS idx_integrations_company ON integrations(company_id);
 --   Password: MortgageGuard!2026
 --
 -- ⚠️  CHANGE THIS PASSWORD AFTER FIRST LOGIN. The password_hash below is a
---    PBKDF2-SHA256 (600k iterations) hash in the format the API verifies.
+--    PBKDF2-SHA256 (100k iterations — the max the Workers runtime supports)
+--    hash in the format the API verifies. The admin row is upserted so an
+--    existing account with a stale hash is corrected on deploy.
 -- ─────────────────────────────────────────────────────
 INSERT INTO companies (id, name, license_states)
 VALUES ('00000000-0000-0000-0000-000000000001', 'MortgageGuard Demo', ARRAY['TX'])
@@ -233,6 +235,6 @@ VALUES (
   'company_admin',
   'Administrator',
   'admin@mortgageguard.com',
-  'pbkdf2:fbb1fe0714b96255083696366d56f430:6db319fa02ad98fead2083e5d2b29ece42916a91a80ea06d49fd5fd36130f8bd'
+  'pbkdf2:e29ebb67e881e482108f57514ab3bb47:2931f5738d769f90ea1aead758b44e87222a218a73553d39fd628a83a79b6c4e'
 )
-ON CONFLICT (email) DO NOTHING;
+ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash;
