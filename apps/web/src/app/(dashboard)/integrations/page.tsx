@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useCapabilities } from "@/lib/capabilities";
+import { InsufficientPermission } from "@/components/insufficient-permission";
 
 interface System {
   id: string;
@@ -26,6 +28,7 @@ export default function IntegrationsPage() {
   const [connected, setConnected] = useState<ConnectedIntegration[]>([]);
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState<string | null>(null);
+  const { can } = useCapabilities();
 
   function load() {
     api.get<{ systems: System[] }>("/api/v1/integrations/available").then((d) => setAvailable(d.systems));
@@ -73,6 +76,8 @@ export default function IntegrationsPage() {
     CREDIT: "bg-green-100 text-green-800",
   };
 
+  if (!can("viewIntegrations")) return <InsufficientPermission />;
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Integrations</h1>
@@ -94,12 +99,12 @@ export default function IntegrationsPage() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => sync(c.systemId)} className="rounded-md bg-[#1B3A6B] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2B5298]">
+                {can("syncIntegrations") && <button onClick={() => sync(c.systemId)} className="rounded-md bg-[#1B3A6B] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2B5298]">
                   Sync Now
-                </button>
-                <button onClick={() => disconnect(c.systemId)} className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50">
+                </button>}
+                {can("manageIntegrations") && <button onClick={() => disconnect(c.systemId)} className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50">
                   Disconnect
-                </button>
+                </button>}
               </div>
             </div>
           ))}
@@ -127,7 +132,7 @@ export default function IntegrationsPage() {
             </ul>
             {connectedIds.has(sys.id) ? (
               <span className="text-xs font-medium text-green-700">Connected</span>
-            ) : (
+            ) : can("manageIntegrations") ? (
               <button
                 onClick={() => connect(sys.id)}
                 disabled={connecting === sys.id}
@@ -135,6 +140,8 @@ export default function IntegrationsPage() {
               >
                 {connecting === sys.id ? "Connecting..." : "Connect"}
               </button>
+            ) : (
+              <span className="text-xs text-gray-500">Insufficient permission to connect</span>
             )}
           </div>
         ))}

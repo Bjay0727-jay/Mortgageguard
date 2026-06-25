@@ -8,6 +8,7 @@ import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import type { Env } from "../env";
 import { evaluateGate, calculateScore, generateChecklist } from "../services/compliance-engine";
+import { requireCapability } from "../middleware/auth";
 
 export const loanRoutes = new Hono<{ Bindings: Env }>();
 
@@ -85,7 +86,7 @@ loanRoutes.get("/", async (c) => {
 });
 
 // ─── POST /api/v1/loans — Create a new loan ───
-loanRoutes.post("/", zValidator("json", createLoanSchema), async (c) => {
+loanRoutes.post("/", requireCapability("createLoan"), zValidator("json", createLoanSchema), async (c) => {
   const user = c.get("user");
   const body = c.req.valid("json");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
@@ -181,21 +182,33 @@ loanRoutes.get("/:id/checklist", async (c) => {
     loanId, loan.property_state, loan.loan_type, loan.loan_purpose, loan.loan_product, c.env
   );
 
-  // Get uploaded docs for this loan
+  // Get latest uploaded document metadata for each checklist document type.
   const uploadedDocs = await sql`
-    SELECT document_type, status, is_signed, uploaded_at
-    FROM loan_documents WHERE loan_id = ${loanId}
+    SELECT DISTINCT ON (document_type)
+      id, document_type, file_name, file_size, mime_type, uploaded_by, status, is_signed, uploaded_at
+    FROM loan_documents
+    WHERE loan_id = ${loanId}
+    ORDER BY document_type, uploaded_at DESC
   `;
   const uploadedSet = new Map(uploadedDocs.map(d => [d.document_type, d]));
 
-  // Merge checklist with upload status
-  const enriched = checklist.map(item => ({
-    ...item,
-    uploaded: uploadedSet.has(item.documentType),
-    uploadStatus: uploadedSet.get(item.documentType)?.status || null,
-    isSigned: uploadedSet.get(item.documentType)?.is_signed || false,
-    uploadedAt: uploadedSet.get(item.documentType)?.uploaded_at || null,
-  }));
+  // Merge checklist with upload status and metadata needed by the UI.
+  const enriched = checklist.map(item => {
+    const uploadedDoc = uploadedSet.get(item.documentType);
+    return {
+      ...item,
+      uploaded: Boolean(uploadedDoc),
+      documentId: uploadedDoc?.id || null,
+      fileName: uploadedDoc?.file_name || null,
+      fileSize: uploadedDoc?.file_size || null,
+      mimeType: uploadedDoc?.mime_type || null,
+      uploadedAt: uploadedDoc?.uploaded_at || null,
+      uploadedBy: uploadedDoc?.uploaded_by || null,
+      status: uploadedDoc?.status || null,
+      uploadStatus: uploadedDoc?.status || null,
+      isSigned: uploadedDoc?.is_signed || false,
+    };
+  });
 
   return c.json({ checklist: enriched, total: checklist.length, complete: enriched.filter(i => i.uploaded).length });
 });
@@ -214,7 +227,7 @@ loanRoutes.get("/:id/score", async (c) => {
 });
 
 // ─── POST /api/v1/loans/:id/advance — Advance pipeline stage ───
-loanRoutes.post("/:id/advance", zValidator("json", advanceStageSchema), async (c) => {
+loanRoutes.post("/:id/advance", requireCapability("advanceLoanStage"), zValidator("json", advanceStageSchema), async (c) => {
   const user = c.get("user");
   const loanId = c.req.param("id");
   const { targetStage } = c.req.valid("json");

@@ -53,6 +53,104 @@ export const USER_ROLES = [
 ] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
+
+// ─── Role Capabilities ───
+export const CAPABILITIES = [
+  "viewDashboard",
+  "viewLoans",
+  "createLoan",
+  "advanceLoanStage",
+  "uploadLoanDocument",
+  "deleteLoanDocument",
+  "viewCompliancePrograms",
+  "manageCompliancePrograms",
+  "uploadProgramDocument",
+  "viewReports",
+  "exportReports",
+  "manageReportDeadlines",
+  "viewIntegrations",
+  "manageIntegrations",
+  "syncIntegrations",
+  "manageUsers",
+  "manageInvites",
+  "overrideCompliance",
+  "viewAuditTrail",
+] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+
+const ALL_CAPABILITIES = [...CAPABILITIES] as const;
+
+export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
+  company_admin: ALL_CAPABILITIES,
+  qualifying_individual: [
+    "viewDashboard",
+    "viewLoans",
+    "createLoan",
+    "advanceLoanStage",
+    "uploadLoanDocument",
+    "deleteLoanDocument",
+    "viewCompliancePrograms",
+    "manageCompliancePrograms",
+    "uploadProgramDocument",
+    "viewReports",
+    "exportReports",
+    "manageReportDeadlines",
+    "viewIntegrations",
+    "syncIntegrations",
+    "overrideCompliance",
+    "viewAuditTrail",
+  ],
+  loan_originator: [
+    "viewDashboard",
+    "viewLoans",
+    "createLoan",
+    "advanceLoanStage",
+    "uploadLoanDocument",
+    "viewReports",
+  ],
+  processor: [
+    "viewDashboard",
+    "viewLoans",
+    "advanceLoanStage",
+    "uploadLoanDocument",
+    "viewReports",
+  ],
+  compliance_officer: [
+    "viewDashboard",
+    "viewLoans",
+    "advanceLoanStage",
+    "uploadLoanDocument",
+    "deleteLoanDocument",
+    "viewCompliancePrograms",
+    "manageCompliancePrograms",
+    "uploadProgramDocument",
+    "viewReports",
+    "exportReports",
+    "manageReportDeadlines",
+    "viewIntegrations",
+    "syncIntegrations",
+    "overrideCompliance",
+    "viewAuditTrail",
+  ],
+  read_only: [
+    "viewDashboard",
+    "viewLoans",
+    "viewCompliancePrograms",
+    "viewReports",
+    "viewIntegrations",
+    "viewAuditTrail",
+  ],
+} as const;
+
+export function isUserRole(role: string): role is UserRole {
+  return (USER_ROLES as readonly string[]).includes(role);
+}
+
+export function hasCapability(role: string | null | undefined, capability: Capability): boolean {
+  if (!role || !isUserRole(role)) return false;
+  return ROLE_CAPABILITIES[role].includes(capability);
+}
+
 // ─── Compliance Score Thresholds ───
 export const SCORE_THRESHOLDS = {
   passing: 80,

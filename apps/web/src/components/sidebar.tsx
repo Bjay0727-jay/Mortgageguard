@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { useCapabilities } from "@/lib/capabilities";
+import type { Capability } from "@mortgageguard/shared";
 
 /* ── SVG icon components (20×20) ─────────────────────── */
 
@@ -72,6 +74,7 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   badge?: number | string;
+  capability: Capability;
 }
 
 interface NavSection {
@@ -83,21 +86,21 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "Main",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: <IconDashboard /> },
-      { href: "/loans", label: "Loans", icon: <IconLoans /> },
+      { href: "/dashboard", label: "Dashboard", icon: <IconDashboard />, capability: "viewDashboard" },
+      { href: "/loans", label: "Loans", icon: <IconLoans />, capability: "viewLoans" },
     ],
   },
   {
     title: "Compliance",
     items: [
-      { href: "/programs", label: "Programs", icon: <IconPrograms /> },
-      { href: "/reports", label: "Reports", icon: <IconReports /> },
+      { href: "/programs", label: "Programs", icon: <IconPrograms />, capability: "viewCompliancePrograms" },
+      { href: "/reports", label: "Reports", icon: <IconReports />, capability: "viewReports" },
     ],
   },
   {
     title: "Integrations",
     items: [
-      { href: "/integrations", label: "Integrations", icon: <IconIntegrations /> },
+      { href: "/integrations", label: "Integrations", icon: <IconIntegrations />, capability: "viewIntegrations" },
     ],
   },
 ];
@@ -119,6 +122,7 @@ function getInitials(name: string): string {
 export function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuth();
+  const { can } = useCapabilities();
 
   return (
     <aside
@@ -163,7 +167,7 @@ export function Sidebar() {
           <div key={section.title}>
             <div className="sidebar-section-header">{section.title}</div>
             <div className="space-y-0.5">
-              {section.items.map((item) => {
+              {section.items.filter((item) => can(item.capability)).map((item) => {
                 const active =
                   item.href === "/dashboard"
                     ? pathname === "/dashboard"

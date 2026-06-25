@@ -30,7 +30,7 @@ export interface Env {
 
 // ─── Queue Event Types ───
 export interface ComplianceEvent {
-  type: "loan.created" | "document.uploaded" | "stage.changed" | "score.recalculate" | "integration.webhook";
+  type: "loan.created" | "document.uploaded" | "document.replaced" | "stage.changed" | "score.recalculate" | "integration.webhook";
   loanId: string;
   companyId: string;
   payload: Record<string, unknown>;
