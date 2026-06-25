@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import { SignJWT, jwtVerify } from "jose";
 import type { Env } from "../env";
+import { AppError } from "../lib/errors";
 
 export const authRoutes = new Hono<{ Bindings: Env }>();
 
@@ -15,6 +16,13 @@ const registerSchema = z.object({
 });
 
 async function createToken(payload: Record<string, unknown>, secret: string, expiresIn = "24h") {
+  // The Workers runtime (workerd) rejects zero-length HMAC keys with a DataError,
+  // unlike Node which silently accepts them. An unset/empty JWT_SECRET would surface
+  // as an opaque 500; fail with a clear, diagnosable error instead.
+  if (!secret) {
+    console.error("[AUTH] JWT_SECRET is not configured — cannot sign tokens. Set the JWT_SECRET worker secret.");
+    throw new AppError(503, "Authentication is not configured", "AUTH_NOT_CONFIGURED");
+  }
   return new SignJWT(payload).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(expiresIn).sign(new TextEncoder().encode(secret));
 }
 
