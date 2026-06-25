@@ -4,6 +4,8 @@
 import { createMiddleware } from "hono/factory";
 import { jwtVerify } from "jose";
 import type { Env } from "../env";
+import type { Capability } from "@mortgageguard/shared";
+import { hasCapability } from "@mortgageguard/shared";
 
 export interface AuthUser {
   userId: string;
@@ -52,6 +54,18 @@ export function requireRole(...roles: string[]) {
     const user = c.get("user");
     if (!user || !roles.includes(user.role)) {
       return c.json({ error: "Insufficient permissions", requiredRoles: roles }, 403);
+    }
+    await next();
+  });
+}
+
+
+// Capability-based access control middleware
+export function requireCapability(capability: Capability) {
+  return createMiddleware<{ Bindings: Env }>(async (c, next) => {
+    const user = c.get("user");
+    if (!user || !hasCapability(user.role, capability)) {
+      return c.json({ error: "Insufficient permissions", requiredCapability: capability }, 403);
     }
     await next();
   });
