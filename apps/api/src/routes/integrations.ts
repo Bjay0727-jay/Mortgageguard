@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import type { Env } from "../env";
-import { requireRole } from "../middleware/auth";
+import { requireCapability } from "../middleware/auth";
 export const integrationRoutes = new Hono<{ Bindings: Env }>();
 
 const SUPPORTED_SYSTEMS = [
@@ -26,13 +26,13 @@ const connectSchema = z.object({
 
 integrationRoutes.get("/available", async (c) => c.json({ systems: SUPPORTED_SYSTEMS }));
 
-integrationRoutes.get("/connected", requireRole("company_admin", "compliance_officer"), async (c) => {
+integrationRoutes.get("/connected", requireCapability("viewIntegrations"), async (c) => {
   const user = c.get("user");
   const configs = await c.env.RULE_CACHE.get(`integrations:${user.companyId}`, "json") as any[] || [];
   return c.json({ integrations: configs.map((cfg: any) => ({ ...cfg, clientSecret: undefined, apiKey: undefined })) });
 });
 
-integrationRoutes.post("/connect", requireRole("company_admin"), zValidator("json", connectSchema), async (c) => {
+integrationRoutes.post("/connect", requireCapability("manageIntegrations"), zValidator("json", connectSchema), async (c) => {
   const user = c.get("user");
   const body = c.req.valid("json");
   const system = SUPPORTED_SYSTEMS.find(s => s.id === body.systemId);
@@ -49,7 +49,7 @@ integrationRoutes.post("/connect", requireRole("company_admin"), zValidator("jso
   return c.json({ success: true, integration: { ...config, clientSecret: undefined, apiKey: undefined, webhookSecret: body.webhookEnabled ? config.webhookSecret : undefined } }, 201);
 });
 
-integrationRoutes.post("/sync/:systemId", requireRole("company_admin", "compliance_officer"), async (c) => {
+integrationRoutes.post("/sync/:systemId", requireCapability("syncIntegrations"), async (c) => {
   const user = c.get("user");
   const systemId = c.req.param("systemId");
   const configs = await c.env.RULE_CACHE.get(`integrations:${user.companyId}`, "json") as any[] || [];
@@ -61,7 +61,7 @@ integrationRoutes.post("/sync/:systemId", requireRole("company_admin", "complian
   return c.json({ success: true, lastSync: config.lastSync, message: `Sync initiated for ${config.name}` });
 });
 
-integrationRoutes.delete("/:systemId", requireRole("company_admin"), async (c) => {
+integrationRoutes.delete("/:systemId", requireCapability("manageIntegrations"), async (c) => {
   const user = c.get("user");
   const systemId = c.req.param("systemId");
   const configs = await c.env.RULE_CACHE.get(`integrations:${user.companyId}`, "json") as any[] || [];

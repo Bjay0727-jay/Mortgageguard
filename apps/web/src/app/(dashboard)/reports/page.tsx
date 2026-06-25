@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useCapabilities } from "@/lib/capabilities";
+import { InsufficientPermission } from "@/components/insufficient-permission";
 
 interface Deadline {
   id: string;
@@ -25,6 +27,7 @@ export default function ReportsPage() {
   const [txLog, setTxLog] = useState<any[]>([]);
   const [tab, setTab] = useState<"deadlines" | "txlog">("deadlines");
   const [error, setError] = useState("");
+  const { can } = useCapabilities();
 
   useEffect(() => {
     api.get<{ deadlines: Deadline[] }>("/api/v1/reports/deadlines").then((d) => setDeadlines(d.deadlines)).catch((e) => setError(e.message));
@@ -50,6 +53,8 @@ export default function ReportsPage() {
     { key: "deadlines" as const, label: "Reporting Deadlines" },
     { key: "txlog" as const, label: `TX Transaction Log (${txLog.length})` },
   ];
+
+  if (!can("viewReports")) return <InsufficientPermission />;
 
   return (
     <div className="space-y-6">
@@ -98,7 +103,7 @@ export default function ReportsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {d.status !== "filed" && (
+                    {can("manageReportDeadlines") && d.status !== "filed" && (
                       <button
                         onClick={() => markFiled(d.id)}
                         className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
@@ -122,12 +127,12 @@ export default function ReportsPage() {
       {tab === "txlog" && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <button
+            {can("exportReports") && <button
               onClick={downloadCsv}
               className="rounded-lg bg-[#1B3A6B] px-4 py-2 text-sm font-medium text-white hover:bg-[#2B5298]"
             >
               Export CSV
-            </button>
+            </button>}
           </div>
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
             <table className="min-w-full divide-y divide-gray-200 text-xs">

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { ScoreBadge } from "@/components/score-badge";
 import { StatusBadge } from "@/components/status-badge";
+import { useCapabilities } from "@/lib/capabilities";
 
 interface Loan {
   id: string;
@@ -59,6 +60,8 @@ export default function LoansPage() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+  const { can } = useCapabilities();
+  const canCreateLoan = can("createLoan");
 
   function loadLoans() {
     const params = new URLSearchParams();
@@ -121,6 +124,7 @@ export default function LoansPage() {
           <span className="text-sm text-gray-500">
             {data ? `${data.pagination.total} total` : ""}
           </span>
+          {canCreateLoan && (
           <button
             onClick={() => setShowModal(true)}
             className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
@@ -134,6 +138,7 @@ export default function LoansPage() {
           >
             + New Loan
           </button>
+          )}
         </div>
       </div>
 
@@ -260,13 +265,13 @@ export default function LoansPage() {
                 >
                   <div className="text-3xl mb-2">📋</div>
                   No loans yet.{" "}
-                  <button
+                  {canCreateLoan && <button
                     onClick={() => setShowModal(true)}
                     className="font-medium underline"
                     style={{ color: "#1B3A6B" }}
                   >
                     Create your first loan
-                  </button>
+                  </button>}
                 </td>
               </tr>
             )}
@@ -275,7 +280,7 @@ export default function LoansPage() {
       </div>
 
       {/* ── New Loan Modal ── */}
-      {showModal && (
+      {showModal && canCreateLoan && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ backgroundColor: "rgba(0,0,0,0.4)" }}

@@ -89,6 +89,7 @@ export const userInvitations = pgTable("user_invitations", {
   acceptedAt: timestamp("accepted_at"),
   revokedAt: timestamp("revoked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   uniqueIndex("invitations_token_idx").on(t.tokenHash),
   index("invitations_company_idx").on(t.companyId),

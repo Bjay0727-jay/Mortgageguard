@@ -1,9 +1,13 @@
 import { Hono } from "hono";
 import postgres from "postgres";
 import type { Env } from "../env";
+import { requireCapability } from "../middleware/auth";
 export const reportRoutes = new Hono<{ Bindings: Env }>();
 
-reportRoutes.get("/transaction-log", async (c) => {
+reportRoutes.get("/transaction-log", async (c, next) => {
+  if ((c.req.query("format") || "json") === "csv") return requireCapability("exportReports")(c, next);
+  return requireCapability("viewReports")(c, next);
+}, async (c) => {
   const user = c.get("user");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
   const format = c.req.query("format") || "json";
@@ -42,7 +46,7 @@ reportRoutes.get("/deadlines", async (c) => {
   return c.json({ deadlines });
 });
 
-reportRoutes.put("/deadlines/:id", async (c) => {
+reportRoutes.put("/deadlines/:id", requireCapability("manageReportDeadlines"), async (c) => {
   const user = c.get("user");
   const id = c.req.param("id");
   const { status, notes } = await c.req.json();
