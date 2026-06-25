@@ -6,26 +6,20 @@ import { registerSchema, registerInviteSchema, changePasswordSchema } from "../r
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-describe("public registration is privilege-safe", () => {
-  it("does not accept a client-supplied role or companyId", () => {
+describe("public registration is invite-only", () => {
+  it("does not accept a client-supplied role, companyId, or companyName", () => {
     const parsed = registerSchema.parse({
       email: "owner@acme.com",
       password: "password123",
       name: "Owner",
       companyName: "Acme Mortgage",
-      // Attacker attempts to escalate / join an existing company:
       role: "company_admin",
       companyId: "11111111-1111-1111-1111-111111111111",
     } as Record<string, unknown>);
 
     expect(parsed).not.toHaveProperty("role");
     expect(parsed).not.toHaveProperty("companyId");
-    expect(parsed.companyName).toBe("Acme Mortgage");
-  });
-
-  it("requires a company name", () => {
-    const res = registerSchema.safeParse({ email: "a@b.com", password: "password123", name: "A" });
-    expect(res.success).toBe(false);
+    expect(parsed).not.toHaveProperty("companyName");
   });
 });
 
@@ -54,7 +48,7 @@ describe("invite registration takes role/company/email from the invite only", ()
 });
 
 describe("change-password schema", () => {
-  it("requires a new password of at least 8 chars and allows omitting current", () => {
+  it("requires a new password of at least 8 chars and allows omitting current in the schema", () => {
     expect(changePasswordSchema.safeParse({ newPassword: "short" }).success).toBe(false);
     expect(changePasswordSchema.safeParse({ newPassword: "longenough" }).success).toBe(true);
   });

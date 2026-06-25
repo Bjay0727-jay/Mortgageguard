@@ -13,17 +13,9 @@ export const authRoutes = new Hono<{ Bindings: Env }>();
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(8) });
 
-// Public self-registration creates a NEW company and makes the registrant its
-// company_admin. It intentionally does NOT accept companyId or role from the
-// client — joining an existing company or choosing a privileged role is only
-// possible via an admin-issued invite (see /register-invite).
-export const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-  name: z.string().min(1).max(255),
-  companyName: z.string().min(1).max(255),
-  nmlsId: z.string().max(20).optional(),
-});
+// Public registration is intentionally disabled. Users join by admin-issued
+// invitation only; company, role, and email are taken from the invite token.
+export const registerSchema = z.object({});
 
 // Invite-based registration. Role/company/email all come from the invite — the
 // client only proves possession of the token and sets their own credentials.
@@ -61,7 +53,7 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
   if (!user) return c.json({ error: "Invalid credentials" }, 401);
   if (!(await verifyPassword(password, user.password_hash))) return c.json({ error: "Invalid credentials" }, 401);
   await sql`UPDATE users SET last_login_at = NOW() WHERE id = ${user.id}`;
-  const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);
+  const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id, mustChangePassword: !!user.must_change_password }, c.env.JWT_SECRET);
   const refreshToken = await createToken({ sub: user.id, type: "refresh" }, c.env.JWT_SECRET, "30d");
   try {
     await c.env.SESSIONS.put(`refresh:${user.id}`, refreshToken, { expirationTtl: 2592000 });
@@ -74,17 +66,8 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
   return c.json({ token, refreshToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, companyId: user.company_id, companyName: user.company_name, nmlsId: user.nmls_id, mustChangePassword: !!user.must_change_password } });
 });
 
-authRoutes.post("/register", zValidator("json", registerSchema), async (c) => {
-  const { email, password, name, companyName, nmlsId } = c.req.valid("json");
-  const sql = db(c.env);
-  const [existing] = await sql`SELECT id FROM users WHERE email = ${email}`;
-  if (existing) return c.json({ error: "Email already registered" }, 409);
-  const passwordHash = await hashPassword(password);
-  // New company + its first admin. Role is fixed server-side.
-  const [company] = await sql`INSERT INTO companies (name) VALUES (${companyName}) RETURNING id, name`;
-  const [user] = await sql`INSERT INTO users (company_id, nmls_id, role, name, email, password_hash) VALUES (${company.id}, ${nmlsId || null}, 'company_admin', ${name}, ${email}, ${passwordHash}) RETURNING id, name, email, role, company_id, nmls_id`;
-  const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);
-  return c.json({ token, user: { ...user, companyName: company.name, mustChangePassword: false } }, 201);
+authRoutes.post("/register", async (c) => {
+  return c.json({ error: "Registration is invite-only. Ask your company admin for an invitation.", code: "INVITE_ONLY" }, 403);
 });
 
 // ─── Invite lookup (public): validate a token and surface who it's for ───
@@ -125,7 +108,8 @@ authRoutes.post("/register-invite", zValidator("json", registerInviteSchema), as
   // Mark accepted; the accepted_at IS NULL guard prevents a double redemption race.
   await sql`UPDATE user_invitations SET accepted_at = NOW() WHERE id = ${invite.id} AND accepted_at IS NULL`;
 
-  const jwt = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);
+  const jwt = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id, mustChangePassword: false }, c.env.JWT_SECRET);
+  await c.env.AUDIT_QUEUE.send({ type: "invite.accepted", entityType: "user", entityId: user.id, companyId: user.company_id, userId: user.id, action: "accept_invite", details: { inviteId: invite.id, email: invite.email, role: invite.role }, ipAddress: c.req.header("cf-connecting-ip") || "unknown", timestamp: new Date().toISOString() });
   return c.json({ token: jwt, user: { ...user, companyName: invite.company_name, mustChangePassword: false } }, 201);
 });
 
@@ -147,7 +131,16 @@ authRoutes.post("/change-password", authMiddleware, zValidator("json", changePas
 
   const passwordHash = await hashPassword(newPassword);
   await sql`UPDATE users SET password_hash = ${passwordHash}, must_change_password = false, updated_at = NOW() WHERE id = ${user.id}`;
-  return c.json({ success: true });
+  await c.env.AUDIT_QUEUE.send({ type: "user.password_changed", entityType: "user", entityId: user.id, companyId: authUser.companyId, userId: authUser.userId, action: "change_password", details: { forced: !!user.must_change_password }, ipAddress: c.req.header("cf-connecting-ip") || "unknown", timestamp: new Date().toISOString() });
+  return c.json({ success: true, user: { ...authUser, mustChangePassword: false } });
+});
+
+authRoutes.get("/me", authMiddleware, async (c) => {
+  const authUser = c.get("user");
+  const sql = db(c.env);
+  const [user] = await sql`SELECT u.id, u.name, u.email, u.role, u.company_id, u.nmls_id, u.must_change_password, c.name AS company_name FROM users u JOIN companies c ON c.id = u.company_id WHERE u.id = ${authUser.userId} AND u.is_active = true`;
+  if (!user) return c.json({ error: "User not found" }, 404);
+  return c.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role, companyId: user.company_id, companyName: user.company_name, nmlsId: user.nmls_id, mustChangePassword: !!user.must_change_password } });
 });
 
 authRoutes.post("/refresh", async (c) => {
@@ -161,7 +154,7 @@ authRoutes.post("/refresh", async (c) => {
     const sql = db(c.env);
     const [user] = await sql`SELECT * FROM users WHERE id = ${payload.sub as string} AND is_active = true`;
     if (!user) return c.json({ error: "User not found" }, 401);
-    const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id }, c.env.JWT_SECRET);
+    const token = await createToken({ sub: user.id, companyId: user.company_id, email: user.email, role: user.role, nmlsId: user.nmls_id, mustChangePassword: !!user.must_change_password }, c.env.JWT_SECRET);
     return c.json({ token });
   } catch { return c.json({ error: "Invalid refresh token" }, 401); }
 });

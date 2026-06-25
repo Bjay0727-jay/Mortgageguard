@@ -52,12 +52,17 @@ CREATE TABLE IF NOT EXISTS user_invitations (
   expires_at TIMESTAMPTZ NOT NULL,
   accepted_at TIMESTAMPTZ,
   revoked_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT user_invitations_role_check CHECK (role IN ('company_admin','qualifying_individual','loan_originator','processor','compliance_officer','read_only'))
 );
+
+ALTER TABLE user_invitations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_invitations_token ON user_invitations(token_hash);
 CREATE INDEX IF NOT EXISTS idx_invitations_company ON user_invitations(company_id);
 CREATE INDEX IF NOT EXISTS idx_invitations_email ON user_invitations(email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invitations_active_company_email ON user_invitations(company_id, lower(email)) WHERE accepted_at IS NULL AND revoked_at IS NULL;
 
 -- ─── Loans ───
 CREATE TABLE IF NOT EXISTS loans (
@@ -245,7 +250,7 @@ CREATE INDEX IF NOT EXISTS idx_integrations_company ON integrations(company_id);
 --   Password: MortgageGuard!2026
 --
 -- ⚠️  CHANGE THIS PASSWORD AFTER FIRST LOGIN. The password_hash below is a
---    PBKDF2-SHA256 (100k iterations — the max the Workers runtime supports)
+--    PBKDF2-SHA256 (600k iterations — the max the Workers runtime supports)
 --    hash in the format the API verifies. The admin is seeded with
 --    must_change_password = true so the app forces a password change on first
 --    login.
@@ -260,7 +265,7 @@ VALUES (
   'company_admin',
   'Administrator',
   'admin@mortgageguard.com',
-  'pbkdf2:e29ebb67e881e482108f57514ab3bb47:2931f5738d769f90ea1aead758b44e87222a218a73553d39fd628a83a79b6c4e',
+  'pbkdf2:e29ebb67e881e482108f57514ab3bb47:689381c166ebeda0ffe71a9e9e1b72cd5d47a32a79aa762552fc9d8422966fac',
   true
 )
 ON CONFLICT (email) DO NOTHING;
@@ -270,8 +275,8 @@ ON CONFLICT (email) DO NOTHING;
 -- forced password change. Once the admin has logged in, this is a no-op, so a
 -- password the admin set later is never clobbered. Idempotent.
 UPDATE users
-SET password_hash = 'pbkdf2:e29ebb67e881e482108f57514ab3bb47:2931f5738d769f90ea1aead758b44e87222a218a73553d39fd628a83a79b6c4e',
+SET password_hash = 'pbkdf2:e29ebb67e881e482108f57514ab3bb47:689381c166ebeda0ffe71a9e9e1b72cd5d47a32a79aa762552fc9d8422966fac',
     must_change_password = true
 WHERE email = 'admin@mortgageguard.com'
   AND last_login_at IS NULL
-  AND password_hash <> 'pbkdf2:e29ebb67e881e482108f57514ab3bb47:2931f5738d769f90ea1aead758b44e87222a218a73553d39fd628a83a79b6c4e';
+  AND password_hash <> 'pbkdf2:e29ebb67e881e482108f57514ab3bb47:689381c166ebeda0ffe71a9e9e1b72cd5d47a32a79aa762552fc9d8422966fac';

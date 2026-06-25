@@ -13,6 +13,7 @@ export interface AuthUser {
   email: string;
   role: string;
   nmlsId: string | null;
+  mustChangePassword: boolean;
 }
 
 // Extend Hono context with auth user
@@ -40,6 +41,7 @@ export const authMiddleware = createMiddleware<{ Bindings: Env }>(async (c, next
       email: payload.email as string,
       role: payload.role as string,
       nmlsId: (payload.nmlsId as string) || null,
+      mustChangePassword: Boolean(payload.mustChangePassword),
     });
 
     await next();
@@ -66,6 +68,9 @@ export function requireCapability(capability: Capability) {
     const user = c.get("user");
     if (!user || !hasCapability(user.role, capability)) {
       return c.json({ error: "Insufficient permissions", requiredCapability: capability }, 403);
+    }
+    if (user.mustChangePassword) {
+      return c.json({ error: "Password change required", code: "MUST_CHANGE_PASSWORD" }, 403);
     }
     await next();
   });

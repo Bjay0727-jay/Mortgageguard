@@ -53,7 +53,7 @@ export function buildSetupChecklist(data: DashboardSetupData): SetupChecklistIte
       complete: false,
       explanation: "Verify legal name, NMLS ID, licensed states, and exam contacts.",
       cta: "Open Company Settings",
-      href: "/settings/company",
+      href: "/company-settings",
     },
     {
       id: "rules",
@@ -62,7 +62,7 @@ export function buildSetupChecklist(data: DashboardSetupData): SetupChecklistIte
       complete: false,
       explanation: "Rules power checklists, score calculations, and exam-readiness reports.",
       cta: "View Setup Instructions",
-      href: "/settings/company?tab=rules",
+      href: "/company-settings?tab=rules",
     },
     {
       id: "loan",
@@ -89,7 +89,7 @@ export function buildSetupChecklist(data: DashboardSetupData): SetupChecklistIte
       complete: false,
       explanation: "Invite originators, processors, compliance staff, and read-only exam reviewers.",
       cta: "Manage Invites",
-      href: "/settings/users",
+      href: "/users",
     },
     {
       id: "integrations",

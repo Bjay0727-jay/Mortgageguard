@@ -15,7 +15,9 @@ const PAGE_TITLES: Record<string, string> = {
   "/reports": "Reports",
   "/integrations": "Integrations",
   "/settings/company": "Company Settings",
+  "/company-settings": "Company Settings",
   "/settings/users": "Users & Invites",
+  "/users": "Users & Invites",
   "/settings/audit": "Audit Log",
   "/settings/profile": "Profile",
 };
@@ -47,7 +49,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     if (isDefaultAdmin(user)) items.push({ title: "Default admin password should be changed", href: "/change-password" });
     items.push({ title: "Required programs missing", href: "/programs" });
     items.push({ title: "No reporting deadlines configured", href: "/reports" });
-    items.push({ title: "Texas rules may not be loaded", href: "/settings/company?tab=rules" });
+    items.push({ title: "Texas rules may not be loaded", href: "/company-settings?tab=rules" });
     return items;
   }, [user]);
 
@@ -118,9 +120,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
               {userMenuOpen && (
                 <div className="absolute right-0 z-30 mt-2 w-56 rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
                   <MenuLink href="/settings/profile" label="Profile" onClick={() => setUserMenuOpen(false)} />
-                  <MenuLink href="/settings/company" label="Company Settings" onClick={() => setUserMenuOpen(false)} />
+                  <MenuLink href="/company-settings" label="Company Settings" onClick={() => setUserMenuOpen(false)} />
                   <MenuLink href="/change-password" label="Change Password" onClick={() => setUserMenuOpen(false)} />
-                  {can("manageInvites") && <MenuLink href="/settings/users" label="Manage Users / Invites" onClick={() => setUserMenuOpen(false)} />}
+                  {can("manageInvites") && <MenuLink href="/users" label="Manage Users / Invites" onClick={() => setUserMenuOpen(false)} />}
                   <button onClick={() => { setUserMenuOpen(false); logout(); }} className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50">Sign Out</button>
                 </div>
               )}

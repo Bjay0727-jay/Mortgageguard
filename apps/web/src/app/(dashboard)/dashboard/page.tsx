@@ -154,7 +154,7 @@ export default function DashboardPage() {
           <WarningCard
             title="Texas compliance rules are not loaded yet"
             description="Load or verify Texas rules so checklists, scores, and reporting deadlines can be generated accurately."
-            href="/settings/company?tab=rules"
+            href="/company-settings?tab=rules"
             cta="View Setup Instructions"
           />
         </div>
@@ -167,7 +167,7 @@ export default function DashboardPage() {
           { title: "Create first loan", description: "Start a file and generate its initial compliance checklist.", href: "/loans", cta: "Create Loan", priority: "High" },
           { title: "Add required programs", description: "Upload AML, Red Flags, InfoSec, compensation, and remote work policies.", href: "/programs", cta: "Set Up Programs", priority: "High" },
           { title: "Configure reporting deadlines", description: "Track quarterly and state-specific filing due dates.", href: "/reports", cta: "Configure Deadlines", priority: "Medium" },
-          { title: "Invite users", description: "Bring in processors, originators, compliance officers, and reviewers.", href: "/settings/users", cta: "Invite Team", priority: "Medium" },
+          { title: "Invite users", description: "Bring in processors, originators, compliance officers, and reviewers.", href: "/users", cta: "Invite Team", priority: "Medium" },
           { title: "Connect LOS", description: "Sync loan data and documents from your origination system.", href: "/integrations", cta: "Connect", priority: "Low" },
         ]}
       />

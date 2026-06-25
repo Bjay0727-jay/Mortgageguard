@@ -86,3 +86,22 @@ See MortgageGuard_MVP_WebUI_Guide_v3.docx for step-by-step instructions using Gi
 
 ## Cost
 ~$5/month for the MVP beta period (Cloudflare Workers Paid + Neon free tier).
+
+## Initial admin and invite-only onboarding
+
+MortgageGuard seeds one bootstrap administrator for first-time setup only:
+
+- Email: `admin@mortgageguard.com`
+- Password: `MortgageGuard!2026`
+
+The seeded administrator is created with `must_change_password = true`, so the app forces a password change before normal dashboard use. Change this password before entering production loan, document, or compliance data.
+
+Public self-registration is disabled. New users join a company by invitation:
+
+1. Sign in as a company admin.
+2. Open **Users & Invites** from the Admin sidebar or user menu.
+3. Create an invite by email and role.
+4. Copy the MVP invite link returned by the app and share it with the user.
+5. The invitee opens `/invite/:token`, sets their name/password, and receives the company and role from the invite only.
+
+Invite tokens are generated with secure randomness. Only a SHA-256 token hash is stored in the database; raw tokens are shown once in the MVP invite link and are not recoverable from the database. Expired, revoked, or accepted invites cannot be reused.

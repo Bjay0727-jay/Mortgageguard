@@ -80,11 +80,11 @@ export default function ChangePasswordPage() {
           </span>
         </div>
         <p className="mb-2 text-center text-sm font-medium" style={{ color: "#1B3A6B" }}>
-          {forced ? "Set a new password" : "Change your password"}
+          {forced ? "Change default admin password" : "Change password"}
         </p>
         <p className="mb-8 text-center text-xs text-gray-400">
           {forced
-            ? "For security, you must set a new password before continuing."
+            ? "Default administrator credentials are for initial setup only. Set a new password before continuing."
             : "Update the password for your account."}
         </p>
 

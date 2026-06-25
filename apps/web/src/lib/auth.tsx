@@ -64,7 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const stored = localStorage.getItem("mg_user");
     if (token && stored) {
       try {
-        setUser(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setUser(parsed);
+        api.get<{ user: User }>("/api/v1/auth/me")
+          .then((data) => {
+            localStorage.setItem("mg_user", JSON.stringify(data.user));
+            setUser(data.user);
+          })
+          .catch(() => {});
       } catch {
         api.setToken(null);
         localStorage.removeItem("mg_user");
