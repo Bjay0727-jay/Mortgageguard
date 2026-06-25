@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import type { Env } from "../env";
-import { requireRole } from "../middleware/auth";
+import { requireCapability } from "../middleware/auth";
 import { createInviteToken, inviteExpiry } from "../lib/invites";
 
 // Mounted under /api/v1/users — authMiddleware already applied upstream.
@@ -26,7 +26,7 @@ function buildInviteUrl(env: Env, token: string): string {
 }
 
 // ─── Create an invite (company_admin only) ───
-userRoutes.post("/invites", requireRole("company_admin"), zValidator("json", inviteSchema), async (c) => {
+userRoutes.post("/invites", requireCapability("manageInvites"), zValidator("json", inviteSchema), async (c) => {
   const { email, role } = c.req.valid("json");
   const admin = c.get("user");
   const sql = db(c.env);
@@ -58,7 +58,7 @@ userRoutes.post("/invites", requireRole("company_admin"), zValidator("json", inv
 });
 
 // ─── List pending invites for the admin's company ───
-userRoutes.get("/invites", requireRole("company_admin"), async (c) => {
+userRoutes.get("/invites", requireCapability("manageInvites"), async (c) => {
   const admin = c.get("user");
   const sql = db(c.env);
   const invites = await sql`
@@ -71,7 +71,7 @@ userRoutes.get("/invites", requireRole("company_admin"), async (c) => {
 });
 
 // ─── Revoke an invite ───
-userRoutes.delete("/invites/:id", requireRole("company_admin"), async (c) => {
+userRoutes.delete("/invites/:id", requireCapability("manageInvites"), async (c) => {
   const admin = c.get("user");
   const id = c.req.param("id");
   const sql = db(c.env);

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import type { Env } from "../env";
+import { requireCapability } from "../middleware/auth";
 export const programRoutes = new Hono<{ Bindings: Env }>();
 
 const programSchema = z.object({
@@ -11,7 +12,7 @@ const programSchema = z.object({
   version: z.string().optional(), status: z.enum(["current","overdue","missing","draft"]).default("missing"),
 });
 
-programRoutes.get("/", async (c) => {
+programRoutes.get("/", requireCapability("viewCompliancePrograms"), async (c) => {
   const user = c.get("user");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
   const programs = await sql`SELECT * FROM compliance_programs WHERE company_id = ${user.companyId} ORDER BY is_required DESC, program_name`;
@@ -19,7 +20,7 @@ programRoutes.get("/", async (c) => {
   return c.json({ programs, summary });
 });
 
-programRoutes.post("/", zValidator("json", programSchema), async (c) => {
+programRoutes.post("/", requireCapability("manageCompliancePrograms"), zValidator("json", programSchema), async (c) => {
   const user = c.get("user");
   const body = c.req.valid("json");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
@@ -27,7 +28,7 @@ programRoutes.post("/", zValidator("json", programSchema), async (c) => {
   return c.json({ program }, 201);
 });
 
-programRoutes.put("/:id", zValidator("json", programSchema.partial()), async (c) => {
+programRoutes.put("/:id", requireCapability("manageCompliancePrograms"), zValidator("json", programSchema.partial()), async (c) => {
   const user = c.get("user");
   const id = c.req.param("id");
   const body = c.req.valid("json");
@@ -38,7 +39,7 @@ programRoutes.put("/:id", zValidator("json", programSchema.partial()), async (c)
   return c.json({ program: updated });
 });
 
-programRoutes.post("/:id/upload", async (c) => {
+programRoutes.post("/:id/upload", requireCapability("uploadProgramDocument"), async (c) => {
   const user = c.get("user");
   const id = c.req.param("id");
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
