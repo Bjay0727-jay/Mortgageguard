@@ -67,6 +67,16 @@ function IconIntegrations() {
   );
 }
 
+
+function IconSettings() {
+  return (
+    <svg width="20" height="20" fill="none" viewBox="0 0 20 20">
+      <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M16.2 11.5a6.7 6.7 0 0 0 0-3l1.1-.8-1.5-2.6-1.3.5a6.4 6.4 0 0 0-2.6-1.5L11.7 2H8.3l-.2 2.1a6.4 6.4 0 0 0-2.6 1.5l-1.3-.5-1.5 2.6 1.1.8a6.7 6.7 0 0 0 0 3l-1.1.8 1.5 2.6 1.3-.5a6.4 6.4 0 0 0 2.6 1.5l.2 2.1h3.4l.2-2.1a6.4 6.4 0 0 0 2.6-1.5l1.3.5 1.5-2.6-1.1-.8Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /* ── Nav structure with sections ─────────────────────── */
 
 interface NavItem {
@@ -101,6 +111,14 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Integrations",
     items: [
       { href: "/integrations", label: "Integrations", icon: <IconIntegrations />, capability: "viewIntegrations" },
+    ],
+  },
+  {
+    title: "Admin",
+    items: [
+      { href: "/settings/company", label: "Company Settings", icon: <IconSettings />, capability: "manageUsers" },
+      { href: "/settings/users", label: "Users", icon: <IconSettings />, capability: "manageInvites" },
+      { href: "/settings/audit", label: "Audit Log", icon: <IconSettings />, capability: "viewAuditTrail" },
     ],
   },
 ];
@@ -163,11 +181,14 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 pb-2">
-        {NAV_SECTIONS.map((section) => (
+        {NAV_SECTIONS.map((section) => {
+          const visibleItems = section.items.filter((item) => can(item.capability));
+          if (visibleItems.length === 0) return null;
+          return (
           <div key={section.title}>
             <div className="sidebar-section-header">{section.title}</div>
             <div className="space-y-0.5">
-              {section.items.filter((item) => can(item.capability)).map((item) => {
+              {visibleItems.map((item) => {
                 const active =
                   item.href === "/dashboard"
                     ? pathname === "/dashboard"
@@ -214,7 +235,8 @@ export function Sidebar() {
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* User section */}
