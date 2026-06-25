@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import { hashPassword, verifyPassword, resolveChangePassword, PBKDF2_ITERATIONS } from "./passwords";
 
 describe("password hashing", () => {
-  it("uses the production PBKDF2 iteration count", () => {
-    expect(PBKDF2_ITERATIONS).toBe(600000);
+  it("uses the Workers-supported iteration count (workerd caps PBKDF2 at 100000)", () => {
+    expect(PBKDF2_ITERATIONS).toBe(100000);
+    expect(PBKDF2_ITERATIONS).toBeLessThanOrEqual(100000);
   });
 
   it("round-trips a password in pbkdf2:salt:hash format", async () => {
