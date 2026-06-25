@@ -16,7 +16,7 @@ import { complianceRoutes } from "./routes/compliance";
 import { documentRoutes } from "./routes/documents";
 import { programRoutes } from "./routes/programs";
 import { reportRoutes } from "./routes/reports";
-import { integrationRoutes } from "./routes/integrations";
+import { integrationRoutes, integrationWebhookRoutes } from "./routes/integrations";
 import { authRoutes } from "./routes/auth";
 import { userRoutes } from "./routes/users";
 import { processComplianceEvent } from "./services/compliance-engine";
@@ -62,6 +62,10 @@ app.get("/ready", async (c) => {
 // ─── Public Routes (no auth, rate-limited) ───
 app.use("/api/v1/auth/*", rateLimit({ windowMs: 60_000, maxRequests: 20, keyPrefix: "rl:auth" }));
 app.route("/api/v1/auth", authRoutes);
+
+// LOS webhooks authenticate via HMAC signature (not JWT) — mount BEFORE the
+// auth middleware so external callbacks can reach them.
+app.route("/api/v1/integrations/webhook", integrationWebhookRoutes);
 
 // ─── Protected Routes ───
 app.use("/api/v1/*", authMiddleware);

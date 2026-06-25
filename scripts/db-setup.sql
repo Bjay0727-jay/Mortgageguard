@@ -271,10 +271,56 @@ CREATE TABLE IF NOT EXISTS integrations (
   system_name VARCHAR(100) NOT NULL,
   system_type VARCHAR(20) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'connected',
+  sync_direction VARCHAR(20),
   config JSONB DEFAULT '{}',
+  -- Non-secret credential metadata
+  client_id VARCHAR(255),
+  instance_url TEXT,
+  -- Secrets stored AES-GCM encrypted; never returned by the API
+  client_secret_enc TEXT,
+  api_key_enc TEXT,
+  webhook_enabled BOOLEAN NOT NULL DEFAULT false,
+  webhook_id VARCHAR(64),
+  webhook_secret_enc TEXT,
+  -- Health
+  last_sync_at TIMESTAMPTZ,
+  last_successful_sync_at TIMESTAMPTZ,
+  last_error TEXT,
   connected_at TIMESTAMPTZ DEFAULT NOW(),
-  last_sync_at TIMESTAMPTZ
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Lifecycle/health columns for existing deployments
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS sync_direction VARCHAR(20);
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS client_id VARCHAR(255);
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS instance_url TEXT;
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS client_secret_enc TEXT;
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS api_key_enc TEXT;
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS webhook_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS webhook_id VARCHAR(64);
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS webhook_secret_enc TEXT;
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS last_successful_sync_at TIMESTAMPTZ;
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS last_error TEXT;
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_company_system ON integrations(company_id, system_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_webhook ON integrations(webhook_id);
+
+-- ─── Integration Sync History ───
+CREATE TABLE IF NOT EXISTS integration_sync_history (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  integration_id UUID REFERENCES integrations(id),
+  system_id VARCHAR(50) NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at TIMESTAMPTZ,
+  status VARCHAR(20) NOT NULL DEFAULT 'running',
+  records_processed INTEGER DEFAULT 0,
+  error_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_history_company ON integration_sync_history(company_id);
+CREATE INDEX IF NOT EXISTS idx_sync_history_system ON integration_sync_history(company_id, system_id);
 
 CREATE INDEX IF NOT EXISTS idx_integrations_company ON integrations(company_id);
 
