@@ -68,3 +68,17 @@ describe("deriveTopActions surfaces loan-processing operations", () => {
     expect(byId["upcoming-closings"].count).toBe(2);
   });
 });
+
+describe("deriveTopActions surfaces reporting operations", () => {
+  const actions = deriveTopActions({
+    attentionLoans: [], programs: [], upcomingDeadlines: [], passingLoans: 0,
+    reportOps: { overdueDeadlines: 2, dueSoonDeadlines: 3, missingReceipts: 1, transactionLogGaps: 4 },
+  });
+  const byId = Object.fromEntries(actions.map((a) => [a.id, a]));
+  it("includes overdue/upcoming report filings, missing receipts, and tx-log gaps", () => {
+    expect(byId["file-overdue-reports"].count).toBe(2);
+    expect(byId["file-upcoming-reports"].count).toBe(3);
+    expect(byId["upload-receipts"].count).toBe(1);
+    expect(byId["report-tx-log"].count).toBe(4);
+  });
+});

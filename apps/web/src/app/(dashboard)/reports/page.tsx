@@ -5,6 +5,16 @@ import { api, saveBlob } from "@/lib/api";
 import { useCapabilities } from "@/lib/capabilities";
 import { InsufficientPermission } from "@/components/insufficient-permission";
 import {
+  buildTransactionLogUrl,
+  deadlineStatusVariant,
+  deadlineSummaryCards,
+  effectiveStatus,
+  periodLabel,
+  validateFiling,
+  type Deadline,
+  type ReportingSummary,
+} from "@/lib/reporting";
+import {
   Badge,
   Button,
   Card,
@@ -17,23 +27,9 @@ import {
   Tabs,
   Textarea,
   useToast,
-  type BadgeVariant,
   type Column,
   type ToastOptions,
 } from "@/components/ui";
-
-interface Deadline {
-  id: string;
-  report_type: string;
-  state_code: string | null;
-  quarter: string | null;
-  due_date: string;
-  status: string;
-  notes: string | null;
-  confirmation_number?: string | null;
-  filed_at?: string | null;
-  evidence_file_path?: string | null;
-}
 
 interface LoanOption {
   id: string;
@@ -42,59 +38,74 @@ interface LoanOption {
   borrower_first_name: string;
 }
 
-const STATUS_VARIANT: Record<string, BadgeVariant> = {
-  upcoming: "blue",
-  in_progress: "amber",
-  filed: "green",
-  overdue: "red",
+interface TxLogResult {
+  rowCount: number;
+  warningCount: number;
+  rulesLoaded: boolean;
+  rows: Record<string, unknown>[];
+  warnings: string[];
+  periodStart: string | null;
+  periodEnd: string | null;
+}
+
+const DEADLINE_STATUSES = ["upcoming", "due_soon", "due", "overdue", "filed", "not_applicable"];
+const JURISDICTIONS = ["TX"];
+
+const CARD_TONE: Record<string, string> = {
+  neutral: "var(--gray-700)",
+  info: "var(--royal)",
+  warn: "var(--amber)",
+  danger: "var(--red)",
+  good: "var(--grn)",
 };
-const DEADLINE_STATUSES = ["upcoming", "in_progress", "filed", "overdue"];
-const STATE_OPTIONS = ["TX", "CA", "FL", "NY", "IL"];
 
 export default function ReportsPage() {
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
-  const [txLog, setTxLog] = useState<any[]>([]);
+  const [summary, setSummary] = useState<ReportingSummary | null>(null);
   const [loans, setLoans] = useState<LoanOption[]>([]);
   const [tab, setTab] = useState<"deadlines" | "txlog" | "evidence">("deadlines");
   const [error, setError] = useState("");
+  const [settingUp, setSettingUp] = useState(false);
   const { can } = useCapabilities();
   const { toast } = useToast();
 
   // Deadline filters
   const [fStatus, setFStatus] = useState("");
-  const [fState, setFState] = useState("");
-  const [fQuarter, setFQuarter] = useState("");
+  const [fJurisdiction, setFJurisdiction] = useState("");
   const [fDueSoon, setFDueSoon] = useState(false);
 
   const loadDeadlines = useCallback(() => {
     const params = new URLSearchParams();
     if (fStatus) params.set("status", fStatus);
-    if (fState) params.set("state", fState);
-    if (fQuarter) params.set("quarter", fQuarter);
+    if (fJurisdiction) params.set("jurisdiction", fJurisdiction);
     if (fDueSoon) params.set("dueSoon", "true");
     const qs = params.toString();
     api
-      .get<{ deadlines: Deadline[] }>(`/api/v1/reports/deadlines${qs ? `?${qs}` : ""}`)
-      .then((d) => setDeadlines(d.deadlines))
+      .get<{ summary: ReportingSummary; deadlines: Deadline[] }>(`/api/v1/reports/deadlines${qs ? `?${qs}` : ""}`)
+      .then((d) => { setDeadlines(d.deadlines); setSummary(d.summary); })
       .catch((e) => setError(e.message));
-  }, [fStatus, fState, fQuarter, fDueSoon]);
+  }, [fStatus, fJurisdiction, fDueSoon]);
 
   useEffect(() => { loadDeadlines(); }, [loadDeadlines]);
   useEffect(() => {
-    api.get<{ transactionLog: any[] }>("/api/v1/reports/transaction-log").then((d) => setTxLog(d.transactionLog)).catch(() => {});
     api.get<{ loans: LoanOption[] }>("/api/v1/loans?limit=100").then((d) => setLoans(d.loans)).catch(() => {});
   }, []);
 
-  // ── Filing modal ──
+  // ── Modals ──
   const [filing, setFiling] = useState<Deadline | null>(null);
+  const [receiptFor, setReceiptFor] = useState<Deadline | null>(null);
 
-  async function downloadCsv() {
+  async function setupDeadlines() {
+    setSettingUp(true);
     setError("");
     try {
-      const blob = await api.download("/api/v1/reports/transaction-log?format=csv");
-      saveBlob(blob, "tx_transaction_log.csv");
+      const res = await api.post<{ created: number; skipped: number; entityType: string | null }>("/api/v1/reports/setup-deadlines", { jurisdiction: "TX" });
+      loadDeadlines();
+      toast({ variant: "success", title: "Reporting deadlines ready", description: `${res.created} created, ${res.skipped} already present (entity: ${res.entityType || "unknown"}).` });
     } catch (e: any) {
-      setError(e.message || "Export failed");
+      setError(e.message || "Could not set up deadlines");
+    } finally {
+      setSettingUp(false);
     }
   }
 
@@ -102,15 +113,19 @@ export default function ReportsPage() {
 
   const tabs = [
     { id: "deadlines", label: "Reporting Deadlines" },
-    { id: "txlog", label: `TX Transaction Log (${txLog.length})` },
+    { id: "txlog", label: "TX Transaction Log" },
     { id: "evidence", label: "Evidence Packet" },
   ];
 
+  const cards = deadlineSummaryCards(summary);
+
   const deadlineColumns: Column<Deadline>[] = [
     { key: "report_type", header: "Report", render: (d) => <span className="font-medium text-[var(--gray-900)]">{d.report_type}</span> },
-    { key: "quarter", header: "Quarter", render: (d) => d.quarter || "—" },
+    { key: "jurisdiction", header: "Jurisdiction", render: (d) => d.jurisdiction || d.state_code || "—" },
+    { key: "period", header: "Period", render: (d) => <span className="text-[var(--gray-600)]">{periodLabel(d)}</span> },
     { key: "due_date", header: "Due Date", render: (d) => d.due_date },
-    { key: "status", header: "Status", render: (d) => <Badge variant={STATUS_VARIANT[d.status] || "gray"}>{d.status}</Badge> },
+    { key: "status", header: "Status", render: (d) => <Badge variant={deadlineStatusVariant(effectiveStatus(d))}>{effectiveStatus(d).replace(/_/g, " ")}</Badge> },
+    { key: "filed_at", header: "Filed", render: (d) => (d.filed_at ? String(d.filed_at).slice(0, 10) : "—") },
     {
       key: "confirmation",
       header: "Confirmation #",
@@ -125,11 +140,17 @@ export default function ReportsPage() {
     },
     {
       key: "action",
-      header: "Action",
-      render: (d) =>
-        can("manageReportDeadlines") && d.status !== "filed" ? (
-          <Button variant="success" size="sm" onClick={() => setFiling(d)}>File Report</Button>
-        ) : null,
+      header: "Actions",
+      render: (d) => (
+        <div className="flex flex-wrap gap-1.5">
+          {can("fileReports") && effectiveStatus(d) !== "filed" && (
+            <Button variant="success" size="sm" onClick={() => setFiling(d)}>Mark filed</Button>
+          )}
+          {can("uploadReportReceipts") && (
+            <Button variant="secondary" size="sm" onClick={() => setReceiptFor(d)}>Receipt</Button>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -142,18 +163,30 @@ export default function ReportsPage() {
 
       {tab === "deadlines" && (
         <div className="space-y-4">
-          {/* Filters */}
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {cards.map((c) => (
+              <Card key={c.key} className="text-center">
+                <div className="text-2xl font-bold" style={{ color: CARD_TONE[c.tone] }}>{c.value}</div>
+                <div className="mt-1 text-xs font-medium uppercase tracking-wide text-[var(--gray-500)]">{c.label}</div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Setup + filters */}
           <Card className="flex flex-wrap items-end gap-3">
             <FilterSelect label="Status" value={fStatus} onChange={setFStatus} options={DEADLINE_STATUSES} />
-            <FilterSelect label="State" value={fState} onChange={setFState} options={STATE_OPTIONS} />
-            <div className="w-36">
-              <Input label="Quarter" value={fQuarter} onChange={(e) => setFQuarter(e.target.value)} placeholder="Q1-2026" />
-            </div>
+            <FilterSelect label="Jurisdiction" value={fJurisdiction} onChange={setFJurisdiction} options={JURISDICTIONS} />
             <label className="flex items-center gap-2 pb-2.5 text-sm text-[var(--gray-700)]">
               <input type="checkbox" checked={fDueSoon} onChange={(e) => setFDueSoon(e.target.checked)} className="accent-[var(--royal)]" /> Due soon
             </label>
-            {(fStatus || fState || fQuarter || fDueSoon) && (
-              <Button variant="secondary" onClick={() => { setFStatus(""); setFState(""); setFQuarter(""); setFDueSoon(false); }}>Clear</Button>
+            {(fStatus || fJurisdiction || fDueSoon) && (
+              <Button variant="secondary" onClick={() => { setFStatus(""); setFJurisdiction(""); setFDueSoon(false); }}>Clear</Button>
+            )}
+            {can("setupReportingDeadlines") && (
+              <div className="ml-auto">
+                <Button onClick={setupDeadlines} loading={settingUp}>Set up reporting deadlines</Button>
+              </div>
             )}
           </Card>
 
@@ -166,8 +199,8 @@ export default function ReportsPage() {
               emptyState={
                 <EmptyState
                   icon={<span className="text-lg">🗓️</span>}
-                  title="No deadlines match these filters"
-                  description="Adjust or clear the filters above to see reporting deadlines."
+                  title="No reporting deadlines yet"
+                  description={can("setupReportingDeadlines") ? "Use “Set up reporting deadlines” to generate RMLA, SSSF, and Financial Condition due dates." : "Ask an administrator to set up reporting deadlines."}
                 />
               }
             />
@@ -175,38 +208,7 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {tab === "txlog" && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            {can("exportReports") && <Button onClick={downloadCsv}>Export CSV</Button>}
-          </div>
-          <Card flush className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-[var(--gray-200)] text-xs">
-              <thead className="bg-[var(--gray-50)]">
-                <tr>
-                  {["Loan #", "Borrower", "App Date", "Property", "Rate", "Purpose", "Product", "Status"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-medium uppercase tracking-wider text-[var(--gray-500)]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--gray-100)]">
-                {txLog.map((row, i) => (
-                  <tr key={i} className="hover:bg-[var(--gray-50)]">
-                    <td className="whitespace-nowrap px-3 py-2 font-medium text-[var(--gray-900)]">{row.loan_number}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-[var(--gray-700)]">{row.borrower}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-[var(--gray-600)]">{row.application_date}</td>
-                    <td className="max-w-[200px] truncate px-3 py-2 text-[var(--gray-600)]">{row.property}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-[var(--gray-600)]">{row.interest_rate || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 capitalize text-[var(--gray-600)]">{row.loan_purpose}</td>
-                    <td className="whitespace-nowrap px-3 py-2 capitalize text-[var(--gray-600)]">{row.loan_product}</td>
-                    <td className="whitespace-nowrap px-3 py-2 capitalize text-[var(--gray-600)]">{row.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        </div>
-      )}
+      {tab === "txlog" && <TransactionLogTab canExport={can("exportReports")} onError={setError} toast={toast} />}
 
       {tab === "evidence" && <EvidencePacketTab loans={loans} canExport={can("exportReports")} onError={setError} toast={toast} />}
 
@@ -218,6 +220,15 @@ export default function ReportsPage() {
           onError={(m) => toast({ variant: "error", title: "Filing failed", description: m })}
         />
       )}
+
+      {receiptFor && (
+        <ReceiptModal
+          deadline={receiptFor}
+          onClose={() => setReceiptFor(null)}
+          onUploaded={() => { setReceiptFor(null); loadDeadlines(); toast({ variant: "success", title: "Receipt uploaded", description: "Filing receipt stored and linked to the deadline." }); }}
+          onError={(m) => toast({ variant: "error", title: "Upload failed", description: m })}
+        />
+      )}
     </div>
   );
 }
@@ -226,30 +237,126 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
   return (
     <Select label={label} value={value} onChange={(e) => onChange(e.target.value)} className="w-auto">
       <option value="">All</option>
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      {options.map((o) => <option key={o} value={o}>{o.replace(/_/g, " ")}</option>)}
     </Select>
   );
 }
 
+// ── Texas transaction log export + preview ──
+function TransactionLogTab({ canExport, onError, toast }: { canExport: boolean; onError: (m: string) => void; toast: (o: ToastOptions) => number }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [result, setResult] = useState<TxLogResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const loadPreview = useCallback(async () => {
+    setLoading(true);
+    onError("");
+    try {
+      const data = await api.get<TxLogResult>(buildTransactionLogUrl({ jurisdiction: "TX", from: from || undefined, to: to || undefined }));
+      setResult(data);
+    } catch (e: any) {
+      onError(e.message || "Could not load transaction log");
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to, onError]);
+
+  useEffect(() => { loadPreview(); }, [loadPreview]);
+
+  async function exportCsv() {
+    setExporting(true);
+    onError("");
+    try {
+      const blob = await api.download(buildTransactionLogUrl({ jurisdiction: "TX", from: from || undefined, to: to || undefined, format: "csv" }));
+      saveBlob(blob, `mortgageguard-tx-transaction-log-${from || "all"}-to-${to || "all"}.csv`);
+      toast({ variant: "success", title: "Transaction log exported", description: "Downloaded a formula-safe, Excel-compatible CSV." });
+    } catch (e: any) {
+      onError(e.message || "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const previewKeys = result?.rows?.length ? Object.keys(result.rows[0]).slice(0, 8) : [];
+
+  return (
+    <div className="space-y-4">
+      <Card className="flex flex-wrap items-end gap-3">
+        <Input label="From" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <Input label="To" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <Button variant="secondary" onClick={loadPreview} loading={loading}>Preview</Button>
+        {canExport && <Button onClick={exportCsv} loading={exporting} disabled={!result || result.rowCount === 0}>Export CSV</Button>}
+      </Card>
+
+      {result && (
+        <>
+          {result.warnings.length > 0 && (
+            <div role="status" className="rounded-md bg-[var(--amber-pl,#FEF3C7)] p-3 text-sm text-[var(--amber,#92400E)]">
+              <p className="font-semibold">{result.warningCount} warning(s) for this period:</p>
+              <ul className="mt-1 list-disc pl-5">
+                {result.warnings.slice(0, 8).map((w) => <li key={w}>{w}</li>)}
+                {result.warnings.length > 8 && <li>…and {result.warnings.length - 8} more.</li>}
+              </ul>
+            </div>
+          )}
+          {!result.rulesLoaded && (
+            <div role="status" className="rounded-md bg-[var(--amber-pl,#FEF3C7)] p-3 text-sm text-[var(--amber,#92400E)]">
+              Texas compliance rules are not loaded — transaction-log completeness may be inaccurate.
+            </div>
+          )}
+          <Card flush className="overflow-x-auto">
+            {result.rowCount === 0 ? (
+              <div className="p-6">
+                <EmptyState icon={<span className="text-lg">📄</span>} title="No Texas loans for this period" description="Adjust the date range or create Texas loans to populate the transaction log." />
+              </div>
+            ) : (
+              <table className="min-w-full divide-y divide-[var(--gray-200)] text-xs">
+                <thead className="bg-[var(--gray-50)]">
+                  <tr>
+                    {previewKeys.map((k) => (
+                      <th key={k} className="whitespace-nowrap px-3 py-2 text-left font-medium uppercase tracking-wider text-[var(--gray-500)]">{k}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--gray-100)]">
+                  {result.rows.map((row, i) => (
+                    <tr key={i} className="hover:bg-[var(--gray-50)]">
+                      {previewKeys.map((k) => (
+                        <td key={k} className="max-w-[200px] truncate whitespace-nowrap px-3 py-2 text-[var(--gray-700)]">{String(row[k] ?? "—")}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
 function FilingModal({ deadline, onClose, onFiled, onError }: { deadline: Deadline; onClose: () => void; onFiled: () => void; onError: (m: string) => void }) {
-  const [status, setStatus] = useState("filed");
-  const [filedDate, setFiledDate] = useState("");
+  const [filedAt, setFiledAt] = useState("");
   const [confirmationNumber, setConfirmationNumber] = useState("");
   const [notes, setNotes] = useState("");
-  const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const v = validateFiling({ filedAt, confirmationNumber });
+    if (v) { setFormError(v); return; }
+    setFormError("");
     setSaving(true);
     try {
-      const fd = new FormData();
-      fd.append("status", status);
-      if (filedDate) fd.append("filedDate", filedDate);
-      if (confirmationNumber) fd.append("confirmationNumber", confirmationNumber);
-      if (notes) fd.append("notes", notes);
-      if (file) fd.append("file", file);
-      await api.upload(`/api/v1/reports/deadlines/${deadline.id}/file`, fd);
+      await api.post(`/api/v1/reports/deadlines/${deadline.id}/file`, {
+        filedAt: filedAt || undefined,
+        confirmationNumber: confirmationNumber || undefined,
+        notes: notes || undefined,
+      });
       onFiled();
     } catch (err: any) {
       onError(err.message || "Filing failed");
@@ -263,7 +370,7 @@ function FilingModal({ deadline, onClose, onFiled, onError }: { deadline: Deadli
       open
       onClose={() => !saving && onClose()}
       size="lg"
-      title="File report"
+      title="Record report filing"
       description={`${deadline.report_type}${deadline.quarter ? ` · ${deadline.quarter}` : ""}`}
       footer={
         <>
@@ -273,14 +380,52 @@ function FilingModal({ deadline, onClose, onFiled, onError }: { deadline: Deadli
       }
     >
       <form id="filing-form" onSubmit={submit} className="space-y-3">
-        <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-          {DEADLINE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </Select>
-        <Input label="Filed date" type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} />
+        {formError && <div role="alert" className="rounded-md bg-[var(--red-pl)] p-2.5 text-sm text-[var(--red)]">{formError}</div>}
+        <Input label="Filed date" type="date" value={filedAt} onChange={(e) => setFiledAt(e.target.value)} />
         <Input label="Confirmation / reference number" value={confirmationNumber} onChange={(e) => setConfirmationNumber(e.target.value)} placeholder="e.g. NMLS-2026-Q1-00123" />
         <Textarea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+        <p className="text-xs text-[var(--gray-500)]">Upload the filing receipt separately with the “Receipt” action after recording the filing.</p>
+      </form>
+    </Modal>
+  );
+}
+
+function ReceiptModal({ deadline, onClose, onUploaded, onError }: { deadline: Deadline; onClose: () => void; onUploaded: () => void; onError: (m: string) => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!file) return;
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await api.upload(`/api/v1/reports/deadlines/${deadline.id}/receipt`, fd);
+      onUploaded();
+    } catch (err: any) {
+      onError(err.message || "Upload failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={() => !saving && onClose()}
+      title="Upload filing receipt"
+      description={`${deadline.report_type}${deadline.quarter ? ` · ${deadline.quarter}` : ""}`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button variant="success" type="submit" form="receipt-form" loading={saving} disabled={!file}>{saving ? "Uploading…" : "Upload receipt"}</Button>
+        </>
+      }
+    >
+      <form id="receipt-form" onSubmit={submit} className="space-y-3">
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--gray-700)]">Filing receipt (PDF/image, optional)</span>
+          <span className="mb-1.5 block text-sm font-medium text-[var(--gray-700)]">Filing receipt (PDF or image)</span>
           <input type="file" accept=".pdf,.png,.jpg,.jpeg,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} className="w-full text-sm" />
         </label>
       </form>

@@ -422,7 +422,72 @@ ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS filed_by UUID REFERENCE
 ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS confirmation_number VARCHAR(100);
 ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS evidence_file_path TEXT;
 
+-- Obligation-based reporting model (Prompt 13). obligation_key/jurisdiction/
+-- period_* supersede the legacy report_type/state_code/quarter columns, which
+-- are kept populated for backward compatibility.
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS obligation_key TEXT;
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS jurisdiction VARCHAR(3);
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS period_start DATE;
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS period_end DATE;
+ALTER TABLE reporting_deadlines ADD COLUMN IF NOT EXISTS receipt_document_id UUID;
+
 CREATE INDEX IF NOT EXISTS idx_deadlines_company ON reporting_deadlines(company_id);
+-- Idempotency key for obligation-based deadline setup (partial: legacy rows have
+-- NULL obligation_key and are excluded).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_deadline_period
+  ON reporting_deadlines(company_id, obligation_key, jurisdiction, period_start, period_end)
+  WHERE obligation_key IS NOT NULL;
+
+-- ─── Reporting Obligations (catalog of what must be filed, per jurisdiction) ───
+CREATE TABLE IF NOT EXISTS reporting_obligations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  obligation_key TEXT NOT NULL,
+  jurisdiction TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  frequency TEXT NOT NULL,
+  applies_to_entity_types TEXT[],
+  due_rule TEXT NOT NULL,
+  source_key TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(obligation_key, jurisdiction)
+);
+
+-- ─── Report Exports (audit trail of generated transaction-log/report files) ───
+CREATE TABLE IF NOT EXISTS report_exports (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  report_key TEXT NOT NULL,
+  jurisdiction TEXT NOT NULL,
+  format TEXT NOT NULL,
+  period_start DATE,
+  period_end DATE,
+  r2_key TEXT,
+  generated_by UUID REFERENCES users(id),
+  generated_at TIMESTAMPTZ DEFAULT NOW(),
+  row_count INTEGER DEFAULT 0,
+  warning_count INTEGER DEFAULT 0,
+  hash TEXT,
+  metadata JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_report_exports_company ON report_exports(company_id);
+
+-- ─── Report Filing Events (immutable history of filings against a deadline) ───
+CREATE TABLE IF NOT EXISTS report_filing_events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  reporting_deadline_id UUID NOT NULL REFERENCES reporting_deadlines(id),
+  filed_by UUID REFERENCES users(id),
+  filed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  confirmation_number TEXT,
+  receipt_document_id UUID,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_filing_events_deadline ON report_filing_events(reporting_deadline_id);
+CREATE INDEX IF NOT EXISTS idx_filing_events_company ON report_filing_events(company_id);
 
 -- ─── Integrations ───
 CREATE TABLE IF NOT EXISTS integrations (

@@ -48,7 +48,15 @@ complianceRoutes.get("/dashboard", async (c) => {
   const [txLogIssues] = await sql`SELECT COUNT(*)::int AS n FROM loans WHERE ${scope} AND transaction_log_status IN ('missing_fields','overdue')`;
   const loanOps = { overdueTasks: Number(overdueTasks?.n ?? 0), upcomingClosings: Number(upcomingClosings?.n ?? 0), txLogIssues: Number(txLogIssues?.n ?? 0) };
 
-  return c.json({ examReadiness: { avgScore: Math.round(Number(loanStats.avg_score) || 0), totalLoans: Number(loanStats.total), criticalAlerts: Number(loanStats.critical), passingLoans: Number(loanStats.passing), totalVolume: Number(loanStats.total_volume) || 0 }, pipeline: byStage, stateBreakdown: byState, programs: programStats, upcomingDeadlines, attentionLoans, loanOps, filters: { state, status, from, to } });
+  // Reporting-deadline operational counts for the dashboard top actions.
+  // overdue = not filed and past due; dueSoon = not filed and due within 30 days;
+  // missingReceipts = marked filed but no receipt linked.
+  const [overdueDeadlines] = await sql`SELECT COUNT(*)::int AS n FROM reporting_deadlines WHERE company_id = ${user.companyId} AND status <> 'filed' AND due_date < CURRENT_DATE`;
+  const [dueSoonDeadlines] = await sql`SELECT COUNT(*)::int AS n FROM reporting_deadlines WHERE company_id = ${user.companyId} AND status <> 'filed' AND due_date >= CURRENT_DATE AND due_date <= CURRENT_DATE + INTERVAL '30 days'`;
+  const [missingReceipts] = await sql`SELECT COUNT(*)::int AS n FROM reporting_deadlines WHERE company_id = ${user.companyId} AND status IN ('filed') AND evidence_file_path IS NULL`;
+  const reportOps = { overdueDeadlines: Number(overdueDeadlines?.n ?? 0), dueSoonDeadlines: Number(dueSoonDeadlines?.n ?? 0), missingReceipts: Number(missingReceipts?.n ?? 0), transactionLogGaps: Number(txLogIssues?.n ?? 0) };
+
+  return c.json({ examReadiness: { avgScore: Math.round(Number(loanStats.avg_score) || 0), totalLoans: Number(loanStats.total), criticalAlerts: Number(loanStats.critical), passingLoans: Number(loanStats.passing), totalVolume: Number(loanStats.total_volume) || 0 }, pipeline: byStage, stateBreakdown: byState, programs: programStats, upcomingDeadlines, attentionLoans, loanOps, reportOps, filters: { state, status, from, to } });
 });
 
 complianceRoutes.post("/recalculate/:loanId", async (c) => {

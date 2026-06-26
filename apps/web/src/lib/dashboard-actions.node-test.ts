@@ -13,7 +13,7 @@ assert.equal(buildDashboardQuery({ state: "", status: "" }), "");
 
 // ─── deriveTopActions ───
 const empty = deriveTopActions({ attentionLoans: [], programs: [], upcomingDeadlines: [], passingLoans: 0 });
-assert.deepEqual(empty.map((a) => a.id), ["upload-docs", "overdue-programs", "file-reports", "advance-loans", "complete-programs", "verify-sources", "loan-tasks", "tx-log", "upcoming-closings"]);
+assert.deepEqual(empty.map((a) => a.id), ["upload-docs", "overdue-programs", "file-reports", "advance-loans", "complete-programs", "verify-sources", "loan-tasks", "tx-log", "upcoming-closings", "file-overdue-reports", "file-upcoming-reports", "upload-receipts", "report-tx-log"]);
 assert.equal(empty.every((a) => a.count === 0), true);
 assert.equal(hasActionableWork({ attentionLoans: [], programs: [], upcomingDeadlines: [], passingLoans: 0 }), false);
 
