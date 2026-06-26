@@ -5,14 +5,16 @@ import type { Env } from "../env";
 export function createMockKV(): KVNamespace {
   const store = new Map<string, { value: string; expiry?: number }>();
   return {
-    get: async (key: string) => {
+    get: async (key: string, typeOrOpts?: unknown) => {
       const entry = store.get(key);
       if (!entry) return null;
       if (entry.expiry && Date.now() > entry.expiry) {
         store.delete(key);
         return null;
       }
-      return entry.value;
+      // Mirror real Workers KV: get(key, "json") parses the stored value.
+      const asJson = typeOrOpts === "json" || (typeOrOpts as any)?.type === "json";
+      return asJson ? JSON.parse(entry.value) : entry.value;
     },
     put: async (key: string, value: string, opts?: { expirationTtl?: number }) => {
       store.set(key, {

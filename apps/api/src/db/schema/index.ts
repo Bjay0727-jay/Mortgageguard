@@ -135,6 +135,21 @@ export const loans = pgTable("loans", {
   complianceScore: integer("compliance_score").default(0),
   docsRequired: integer("docs_required").default(0),
   docsComplete: integer("docs_complete").default(0),
+  // Loan creation portal (Prompt 21)
+  applicantEmail: varchar("applicant_email", { length: 255 }),
+  applicantPhone: varchar("applicant_phone", { length: 40 }),
+  coBorrowerName: varchar("co_borrower_name", { length: 255 }),
+  applicationMethod: varchar("application_method", { length: 40 }),
+  propertyCounty: varchar("property_county", { length: 100 }),
+  texasCashoutType: varchar("texas_cashout_type", { length: 20 }).default("none"),
+  purchasePrice: decimal("purchase_price", { precision: 15, scale: 2 }),
+  estimatedClosingDate: date("estimated_closing_date"),
+  loanOriginatorName: varchar("loan_originator_name", { length: 255 }),
+  processorUserId: uuid("processor_user_id").references(() => users.id),
+  complianceOwnerUserId: uuid("compliance_owner_user_id").references(() => users.id),
+  transactionLogEnteredAt: timestamp("transaction_log_entered_at"),
+  transactionLogDueAt: timestamp("transaction_log_due_at"),
+  transactionLogStatus: varchar("transaction_log_status", { length: 20 }),
   // Metadata
   isDeleted: boolean("is_deleted").default(false),
   deletedAt: timestamp("deleted_at"),
@@ -147,6 +162,29 @@ export const loans = pgTable("loans", {
   index("loans_status_idx").on(t.status),
   index("loans_originator_idx").on(t.originatorId),
   uniqueIndex("loans_number_company_idx").on(t.loanNumber, t.companyId),
+]);
+
+// ─── LOAN TASKS (work queue) ───
+export const loanTasks = pgTable("loan_tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  loanId: uuid("loan_id").notNull().references(() => loans.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  taskType: text("task_type").notNull(),
+  status: text("status").default("open").notNull(),
+  priority: text("priority").default("normal").notNull(),
+  autoKey: text("auto_key"),
+  assignedTo: uuid("assigned_to").references(() => users.id),
+  dueAt: timestamp("due_at"),
+  completedAt: timestamp("completed_at"),
+  completedBy: uuid("completed_by").references(() => users.id),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("loan_tasks_loan_idx").on(t.loanId),
+  index("loan_tasks_company_idx").on(t.companyId),
 ]);
 
 // ─── STATE RULES ───

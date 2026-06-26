@@ -105,6 +105,53 @@ CREATE TABLE IF NOT EXISTS loans (
 -- Add is_deleted if missing (for existing deployments)
 ALTER TABLE loans ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false;
 
+-- Originator/lender columns the loan create endpoint writes (drift fix).
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS originator_nmls_id VARCHAR(20);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS lender_name VARCHAR(255);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS lender_nmls_id VARCHAR(20);
+
+-- Loan creation portal (Prompt 21): borrower/applicant, property, originator,
+-- transaction-log, and conditional-rule columns. All idempotent.
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS applicant_email VARCHAR(255);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS applicant_phone VARCHAR(40);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS co_borrower_name VARCHAR(255);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS application_method VARCHAR(40);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS property_county VARCHAR(100);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS texas_cashout_type VARCHAR(20) DEFAULT 'none';
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS purchase_price DECIMAL(15,2);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS estimated_closing_date DATE;
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS loan_originator_name VARCHAR(255);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS processor_user_id UUID REFERENCES users(id);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS compliance_owner_user_id UUID REFERENCES users(id);
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS transaction_log_entered_at TIMESTAMPTZ;
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS transaction_log_due_at TIMESTAMPTZ;
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS transaction_log_status VARCHAR(20);
+
+-- ─── Loan Tasks (work queue) ───
+CREATE TABLE IF NOT EXISTS loan_tasks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  loan_id UUID NOT NULL REFERENCES loans(id),
+  title TEXT NOT NULL,
+  description TEXT,
+  task_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  priority TEXT NOT NULL DEFAULT 'normal',
+  -- de-dupe key for auto-generated tasks (e.g. missing_document:appraisal)
+  auto_key TEXT,
+  assigned_to UUID REFERENCES users(id),
+  due_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  completed_by UUID REFERENCES users(id),
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_loan_tasks_loan ON loan_tasks(loan_id);
+CREATE INDEX IF NOT EXISTS idx_loan_tasks_company ON loan_tasks(company_id);
+-- Keep auto-generated tasks unique per loan so regeneration never duplicates.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_tasks_auto ON loan_tasks(loan_id, auto_key) WHERE auto_key IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_loans_company ON loans(company_id);
 CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);
 CREATE INDEX IF NOT EXISTS idx_loans_state ON loans(property_state);
