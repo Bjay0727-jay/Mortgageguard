@@ -187,6 +187,34 @@ describe("POST /setup/load-rules", () => {
     expect(res.status).toBe(403);
   });
 
+  it("returns a debug-friendly counts payload", async () => {
+    const res = await app().request("/api/v1/setup/load-rules", { method: "POST", headers: { ...(await auth("company_admin")), "Content-Type": "application/json" }, body: JSON.stringify({ state: "tx" }) }, createMockEnv());
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.state).toBe("TX"); // normalized
+    expect(body.loaded).toBe(true);
+    expect(body.counts).toMatchObject({ stateRules: TEXAS_STATE_RULES.length, requiredDocuments: TEXAS_REQUIRED_DOCUMENTS.length, reportingObligations: 3 });
+  });
+
+  it("unsupported state returns 400, not 500", async () => {
+    const res = await app().request("/api/v1/setup/load-rules", { method: "POST", headers: { ...(await auth("company_admin")), "Content-Type": "application/json" }, body: JSON.stringify({ state: "CA" }) }, createMockEnv());
+    expect(res.status).toBe(400);
+  });
+
+  it("audit-queue failure does NOT fail rule loading", async () => {
+    const env = createMockEnv({ AUDIT_QUEUE: { send: async () => { throw new Error("queue unavailable"); } } as any });
+    const res = await app().request("/api/v1/setup/load-rules", { method: "POST", headers: { ...(await auth("company_admin")), "Content-Type": "application/json" }, body: JSON.stringify({ state: "TX" }) }, env);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).loaded).toBe(true);
+    expect(state.rules).toHaveLength(TEXAS_STATE_RULES.length);
+  });
+
+  it("missing AUDIT_QUEUE binding does NOT fail rule loading", async () => {
+    const env = createMockEnv({ AUDIT_QUEUE: undefined as any });
+    const res = await app().request("/api/v1/setup/load-rules", { method: "POST", headers: { ...(await auth("company_admin")), "Content-Type": "application/json" }, body: JSON.stringify({ state: "TX" }) }, env);
+    expect(res.status).toBe(200);
+  });
+
   it("rules-status reports loaded + obligations after load", async () => {
     const env = createMockEnv();
     await app().request("/api/v1/setup/load-rules", { method: "POST", headers: { ...(await auth("company_admin")), "Content-Type": "application/json" }, body: JSON.stringify({ state: "TX" }) }, env);
