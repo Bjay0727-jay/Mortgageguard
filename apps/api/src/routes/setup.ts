@@ -6,7 +6,7 @@ import type { Env } from "../env";
 import { requireCapability } from "../middleware/auth";
 import { computeRulesStatus, type RulesStatus } from "../lib/rules-status";
 import { buildSetupStatus } from "../lib/setup-status";
-import { TEXAS_STATE_RULES, TEXAS_REQUIRED_DOCUMENTS, TEXAS_REPORTING_DEADLINES } from "../lib/texas-rules";
+import { TEXAS_STATE_RULES, TEXAS_REQUIRED_DOCUMENTS, TEXAS_REPORTING_DEADLINES, TEXAS_REPORTING_OBLIGATIONS } from "../lib/texas-rules";
 import { tryCreateOutboxEvent } from "../lib/outbox";
 
 export const setupRoutes = new Hono<{ Bindings: Env }>();
@@ -31,6 +31,9 @@ async function gatherRulesStatus(sql: any, companyId: string, state = "TX"): Pro
   const [stateRules] = await sql`SELECT COUNT(*) FILTER (WHERE is_active)::int AS active FROM state_rules WHERE state_code = ${state}`;
   const [stateDocs] = await sql`SELECT COUNT(*)::int AS total FROM required_documents rd JOIN state_rules sr ON sr.id = rd.state_rule_id WHERE sr.state_code = ${state}`;
   const [deadlines] = await sql`SELECT COUNT(*)::int AS total FROM reporting_deadlines WHERE company_id = ${companyId}`;
+  // Best-effort: tolerate older deployments where reporting_obligations (Prompt 13) is absent.
+  let obligations: any;
+  try { [obligations] = await sql`SELECT COUNT(*)::int AS total FROM reporting_obligations WHERE jurisdiction = ${state} AND is_active = true`; } catch { obligations = { total: 0 }; }
   return computeRulesStatus({
     state,
     stateRulesCount: Number(rules?.total ?? 0),
@@ -39,6 +42,7 @@ async function gatherRulesStatus(sql: any, companyId: string, state = "TX"): Pro
     stateSpecificActiveRulesCount: Number(stateRules?.active ?? 0),
     stateSpecificRequiredDocumentsCount: Number(stateDocs?.total ?? 0),
     reportingDeadlinesCount: Number(deadlines?.total ?? 0),
+    reportingObligationsCount: Number(obligations?.total ?? 0),
     lastLoadedAt: rules?.last_loaded ?? null,
   });
 }
@@ -67,6 +71,18 @@ async function loadRules(sql: any, companyId: string, state = "TX") {
       SELECT ${companyId}, ${dl.reportType}, ${dl.stateCode}, ${dl.quarter}, ${dl.dueDate}, 'upcoming'
       WHERE NOT EXISTS (SELECT 1 FROM reporting_deadlines WHERE company_id = ${companyId} AND report_type = ${dl.reportType} AND quarter = ${dl.quarter})`;
   }
+  // Ensure the jurisdiction-level reporting obligation catalog (rmla/sssf/
+  // financial_condition) exists. Idempotent on (obligation_key, jurisdiction).
+  // Best-effort so rule loading never fails on an older deployment missing the
+  // Prompt 13 reporting_obligations table.
+  try {
+    for (const ob of TEXAS_REPORTING_OBLIGATIONS) {
+      await sql`
+        INSERT INTO reporting_obligations (obligation_key, jurisdiction, name, description, frequency, due_rule, source_key, is_active)
+        VALUES (${ob.obligationKey}, ${ob.jurisdiction}, ${ob.name}, ${ob.description}, ${ob.frequency}, ${ob.dueRule}, ${ob.sourceKey}, true)
+        ON CONFLICT (obligation_key, jurisdiction) DO NOTHING`;
+    }
+  } catch { /* reporting_obligations not deployed yet — non-fatal */ }
   return gatherRulesStatus(sql, companyId, state);
 }
 

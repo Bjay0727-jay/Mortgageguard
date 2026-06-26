@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { buildSetupStatus, type SetupInputs } from "./setup-status";
 import { computeRulesStatus } from "./rules-status";
 
-const loadedRules = computeRulesStatus({ state: "TX", stateRulesCount: 25, activeRulesCount: 25, requiredDocumentsCount: 22, stateSpecificActiveRulesCount: 16, stateSpecificRequiredDocumentsCount: 6, reportingDeadlinesCount: 2 });
-const noRules = computeRulesStatus({ state: "TX", stateRulesCount: 0, activeRulesCount: 0, requiredDocumentsCount: 0, stateSpecificActiveRulesCount: 0, stateSpecificRequiredDocumentsCount: 0, reportingDeadlinesCount: 0 });
+const loadedRules = computeRulesStatus({ state: "TX", stateRulesCount: 25, activeRulesCount: 25, requiredDocumentsCount: 22, stateSpecificActiveRulesCount: 16, stateSpecificRequiredDocumentsCount: 6, reportingDeadlinesCount: 2, reportingObligationsCount: 3 });
+const noRules = computeRulesStatus({ state: "TX", stateRulesCount: 0, activeRulesCount: 0, requiredDocumentsCount: 0, stateSpecificActiveRulesCount: 0, stateSpecificRequiredDocumentsCount: 0, reportingDeadlinesCount: 0, reportingObligationsCount: 0 });
 // Federal-only: combined counts are non-zero but TX-specific subset is empty → not loaded.
-const federalOnly = computeRulesStatus({ state: "TX", stateRulesCount: 9, activeRulesCount: 9, requiredDocumentsCount: 17, stateSpecificActiveRulesCount: 0, stateSpecificRequiredDocumentsCount: 0, reportingDeadlinesCount: 0 });
+const federalOnly = computeRulesStatus({ state: "TX", stateRulesCount: 9, activeRulesCount: 9, requiredDocumentsCount: 17, stateSpecificActiveRulesCount: 0, stateSpecificRequiredDocumentsCount: 0, reportingDeadlinesCount: 0, reportingObligationsCount: 0 });
 
 function base(overrides: Partial<SetupInputs> = {}): SetupInputs {
   return {

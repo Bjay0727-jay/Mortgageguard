@@ -104,3 +104,22 @@ export const TEXAS_REPORTING_DEADLINES: readonly ReportingDeadlineDef[] = [
   { reportType: "TX RMLA Quarterly", stateCode: "TX", quarter: "Q1-2026", dueDate: "2026-05-15" },
   { reportType: "TX SSSF Quarterly", stateCode: "TX", quarter: "Q1-2026", dueDate: "2026-05-15" },
 ];
+
+// Jurisdiction-level reporting obligations (the catalog of WHAT must be filed),
+// independent of any company. Ensured by the Texas rules loader so the Reports
+// page + rules-status can report whether obligations are available. Source:
+// TX-SML Mortgage Compliance Guide (Mortgage Call Reports + Financial Condition).
+export interface ReportingObligationDef {
+  obligationKey: string;
+  jurisdiction: string;
+  name: string;
+  description: string;
+  frequency: string; // quarterly | annual | conditional
+  dueRule: string;
+  sourceKey: string | null;
+}
+export const TEXAS_REPORTING_OBLIGATIONS: readonly ReportingObligationDef[] = [
+  { obligationKey: "rmla", jurisdiction: "TX", name: "Residential Mortgage Loan Activity (RMLA)", description: "Quarterly Mortgage Call Report — residential mortgage loan activity.", frequency: "quarterly", dueRule: "45 days after quarter end (Q1 May 15, Q2 Aug 14, Q3 Nov 14, Q4 Feb 14)", sourceKey: "tx_sml_mortgage_call_report" },
+  { obligationKey: "sssf", jurisdiction: "TX", name: "State-Specific Supplemental Form (SSSF)", description: "Quarterly Mortgage Call Report — Texas state-specific supplement.", frequency: "quarterly", dueRule: "45 days after quarter end (same schedule as RMLA)", sourceKey: "tx_sml_mortgage_call_report" },
+  { obligationKey: "financial_condition", jurisdiction: "TX", name: "Financial Condition", description: "Financial Condition report; quarterly for lenders/servicers, annual for brokers.", frequency: "conditional", dueRule: "Lender/servicer/broker_lender: quarterly (RMLA schedule). Broker: annual, due Mar 31.", sourceKey: "tx_sml_financial_condition" },
+];

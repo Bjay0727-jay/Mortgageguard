@@ -11,6 +11,7 @@ export interface RulesStatusCounts {
   stateRulesCount: number;
   requiredDocumentsCount: number;
   reportingDeadlinesCount: number;
+  reportingObligationsCount: number;
   activeRulesCount: number;
   // State-specific (e.g. TX-only) subset.
   stateSpecificActiveRulesCount: number;
@@ -34,6 +35,7 @@ export function computeRulesStatus(counts: RulesStatusCounts): RulesStatus {
   if (counts.stateSpecificActiveRulesCount === 0) blockers.push(`No active ${counts.state}-specific rules are loaded.`);
   if (counts.stateSpecificRequiredDocumentsCount === 0) blockers.push(`No ${counts.state}-specific required documents are loaded.`);
   if (counts.reportingDeadlinesCount === 0) warnings.push("No reporting deadlines are configured yet.");
+  if (counts.reportingObligationsCount === 0) warnings.push(`No ${counts.state} reporting obligations (RMLA/SSSF/Financial Condition) are available yet.`);
 
   const loaded =
     counts.activeRulesCount > 0 &&
