@@ -244,6 +244,22 @@ CREATE TABLE IF NOT EXISTS loan_timeline (
 
 CREATE INDEX IF NOT EXISTS idx_timeline_loan ON loan_timeline(loan_id);
 
+-- ─── Loan Notes / Correspondence (Prompt 21C) ───
+CREATE TABLE IF NOT EXISTS loan_notes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  loan_id UUID NOT NULL REFERENCES loans(id),
+  note_type TEXT NOT NULL DEFAULT 'general',
+  body TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'internal',
+  is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_loan_notes_loan ON loan_notes(loan_id);
+CREATE INDEX IF NOT EXISTS idx_loan_notes_company ON loan_notes(company_id);
+
 -- ─── Compliance Programs ───
 CREATE TABLE IF NOT EXISTS compliance_programs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
