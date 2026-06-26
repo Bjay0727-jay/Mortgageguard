@@ -34,6 +34,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   const [search, setSearch] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -42,6 +43,11 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
       router.push("/change-password");
     }
   }, [user, loading, router]);
+
+  // Close the mobile nav drawer whenever the route changes.
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
 
   const notifications = useMemo(() => {
     if (!user) return [];
@@ -63,16 +69,27 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
-          <div>
-            <h2 className="text-lg font-semibold text-[#1B3A6B]">{pageTitle}</h2>
-            <p className="text-xs text-gray-400">Guided compliance operations</p>
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-white px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open navigation menu"
+              aria-expanded={sidebarOpen}
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1B3A6B] lg:hidden"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
+            </button>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-[#1B3A6B] sm:text-lg">{pageTitle}</h2>
+              <p className="hidden text-xs text-gray-400 sm:block">Guided compliance operations</p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <select className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none" defaultValue="">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <select className="hidden rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none md:block" defaultValue="">
               <option value="">All States</option>
               <option value="TX">Texas</option>
               <option value="CA">California</option>
@@ -81,13 +98,13 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
               <option value="IL">Illinois</option>
             </select>
 
-            <div className="relative hidden sm:block">
+            <div className="relative hidden lg:block">
               <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
               <input type="text" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-[220px] rounded-lg border border-gray-200 px-3 py-2 pl-8 text-sm outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/10" />
             </div>
 
             <div className="relative">
-              <button aria-label="Notifications" onClick={() => setNotificationsOpen((open) => !open)} className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1B3A6B]">
+              <button aria-label="Notifications" onClick={() => setNotificationsOpen((open) => !open)} className="relative flex h-11 w-11 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1B3A6B]">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" /></svg>
                 {notifications.length > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#C4302B] ring-2 ring-white" />}
               </button>
@@ -110,7 +127,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="relative">
-              <button onClick={() => setUserMenuOpen((open) => !open)} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1B3A6B]">
+              <button aria-label="User menu" onClick={() => setUserMenuOpen((open) => !open)} className="flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1B3A6B]">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1B3A6B] text-xs font-bold text-white">{getInitials(user.name)}</span>
                 <span className="hidden text-left sm:block">
                   <span className="block text-xs font-semibold text-gray-900">{user.name}</span>
@@ -130,7 +147,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-gray-50 p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-gray-50 p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );

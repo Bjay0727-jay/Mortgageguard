@@ -8,14 +8,17 @@ import {
   Badge,
   Button,
   Card,
+  EmptyState,
   Input,
   Modal,
   PageHeader,
   Select,
+  Table,
   Tabs,
   Textarea,
   useToast,
   type BadgeVariant,
+  type Column,
   type ToastOptions,
 } from "@/components/ui";
 
@@ -103,6 +106,33 @@ export default function ReportsPage() {
     { id: "evidence", label: "Evidence Packet" },
   ];
 
+  const deadlineColumns: Column<Deadline>[] = [
+    { key: "report_type", header: "Report", render: (d) => <span className="font-medium text-[var(--gray-900)]">{d.report_type}</span> },
+    { key: "quarter", header: "Quarter", render: (d) => d.quarter || "—" },
+    { key: "due_date", header: "Due Date", render: (d) => d.due_date },
+    { key: "status", header: "Status", render: (d) => <Badge variant={STATUS_VARIANT[d.status] || "gray"}>{d.status}</Badge> },
+    {
+      key: "confirmation",
+      header: "Confirmation #",
+      render: (d) => (
+        <span className="text-[var(--gray-600)]">
+          {d.confirmation_number || "—"}
+          {d.evidence_file_path && (
+            <a href="#" onClick={async (e) => { e.preventDefault(); try { saveBlob(await api.download(`/api/v1/reports/deadlines/${d.id}/evidence`), `filing-receipt-${d.id}`); } catch (err: any) { setError(err.message); } }} className="ml-2 text-xs font-semibold text-[var(--royal)] hover:underline">Receipt</a>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "action",
+      header: "Action",
+      render: (d) =>
+        can("manageReportDeadlines") && d.status !== "filed" ? (
+          <Button variant="success" size="sm" onClick={() => setFiling(d)}>File Report</Button>
+        ) : null,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader title="Reports" />
@@ -128,41 +158,19 @@ export default function ReportsPage() {
           </Card>
 
           <Card flush className="overflow-hidden">
-            <table className="min-w-full divide-y divide-[var(--gray-200)]">
-              <thead className="bg-[var(--gray-50)]">
-                <tr>
-                  {["Report", "Quarter", "Due Date", "Status", "Confirmation #", "Action"].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--gray-500)]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--gray-100)]">
-                {deadlines.map((d) => (
-                  <tr key={d.id} className="hover:bg-[var(--gray-50)]">
-                    <td className="px-4 py-3 text-sm font-medium text-[var(--gray-900)]">{d.report_type}</td>
-                    <td className="px-4 py-3 text-sm text-[var(--gray-600)]">{d.quarter || "—"}</td>
-                    <td className="px-4 py-3 text-sm text-[var(--gray-600)]">{d.due_date}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={STATUS_VARIANT[d.status] || "gray"}>{d.status}</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-[var(--gray-600)]">
-                      {d.confirmation_number || "—"}
-                      {d.evidence_file_path && (
-                        <a href="#" onClick={async (e) => { e.preventDefault(); try { saveBlob(await api.download(`/api/v1/reports/deadlines/${d.id}/evidence`), `filing-receipt-${d.id}`); } catch (err: any) { setError(err.message); } }} className="ml-2 text-xs font-semibold text-[var(--royal)] hover:underline">Receipt</a>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {can("manageReportDeadlines") && d.status !== "filed" && (
-                        <Button variant="success" size="sm" onClick={() => setFiling(d)}>File Report</Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {deadlines.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-[var(--gray-500)]">No deadlines match these filters.</td></tr>
-                )}
-              </tbody>
-            </table>
+            <Table
+              columns={deadlineColumns}
+              data={deadlines}
+              rowKey={(d) => d.id}
+              caption="Reporting deadlines"
+              emptyState={
+                <EmptyState
+                  icon={<span className="text-lg">🗓️</span>}
+                  title="No deadlines match these filters"
+                  description="Adjust or clear the filters above to see reporting deadlines."
+                />
+              }
+            />
           </Card>
         </div>
       )}

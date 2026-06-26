@@ -139,6 +139,7 @@ export default function LoanDetailPage() {
   const [advanceLoading, setAdvanceLoading] = useState(false);
   const [advanceError, setAdvanceError] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
   const { can } = useCapabilities();
 
   const canUploadDocuments = can("uploadLoanDocument");
@@ -219,6 +220,15 @@ export default function LoanDetailPage() {
     setUploadItem(item);
     setSelectedFile(null);
     setUploadError("");
+  }
+
+  // Mobile bottom-bar shortcut: jump to the checklist and open the first
+  // outstanding document (or the first item if everything is uploaded).
+  function quickUpload() {
+    setMoreOpen(false);
+    setTab("checklist");
+    if (checklist.length === 0) return;
+    openUpload(checklist.find((c) => !c.uploaded) ?? checklist[0]);
   }
 
   function closeUpload() {
@@ -352,8 +362,10 @@ export default function LoanDetailPage() {
     },
   ];
 
+  const showAdvance = can("advanceLoanStage") && !!nextStage && !isTerminalStage;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20 lg:pb-0">
       <div className="flex flex-wrap items-center gap-4">
         <Link href="/loans" className="text-sm text-[var(--gray-500)] hover:text-[var(--gray-700)]">
           &larr; Loans
@@ -363,9 +375,9 @@ export default function LoanDetailPage() {
         <ScoreBadge score={loan.compliance_score} />
         <div className="ml-auto flex items-center gap-3">
           <span className="text-sm text-[var(--gray-500)]">Current: <strong className="text-[var(--gray-800)]">{formatStage(loan.status)}</strong></span>
-          {can("advanceLoanStage") && nextStage && !isTerminalStage && (
-            <Button onClick={() => openGateReview(nextStage)} loading={gateLoading}>
-              {gateLoading ? "Checking Gate…" : `Advance to ${formatStage(nextStage)}`}
+          {showAdvance && (
+            <Button onClick={() => openGateReview(nextStage!)} loading={gateLoading} className="hidden lg:inline-flex">
+              {gateLoading ? "Checking Gate…" : `Advance to ${formatStage(nextStage!)}`}
             </Button>
           )}
         </div>
@@ -594,6 +606,33 @@ export default function LoanDetailPage() {
             </div>
           )}
           {uploadError && <div role="alert" className="rounded-lg bg-[var(--red-pl)] p-3 text-sm text-[var(--red)]">{uploadError}</div>}
+        </div>
+      </Modal>
+
+      {/* Sticky mobile action bar */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-[var(--gray-200)] bg-white px-3 py-2.5 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] [padding-bottom:calc(0.625rem+env(safe-area-inset-bottom))] lg:hidden"
+        role="toolbar"
+        aria-label="Loan actions"
+      >
+        {canUploadDocuments && (
+          <Button variant="secondary" className="flex-1" onClick={quickUpload}>Upload Doc</Button>
+        )}
+        {showAdvance && (
+          <Button className="flex-1" onClick={() => openGateReview(nextStage!)} loading={gateLoading}>
+            {gateLoading ? "Checking…" : "Advance Stage"}
+          </Button>
+        )}
+        <Button variant="secondary" onClick={() => setMoreOpen(true)} aria-label="More actions" className="px-4">More</Button>
+      </div>
+
+      {/* "More" bottom sheet */}
+      <Modal open={moreOpen} onClose={() => setMoreOpen(false)} size="sm" title="More actions">
+        <div className="flex flex-col gap-2">
+          <Button variant="secondary" fullWidth onClick={() => { setTab("details"); setMoreOpen(false); }}>View loan details</Button>
+          <Button variant="secondary" fullWidth onClick={() => { setTab("checklist"); setMoreOpen(false); }}>Document checklist</Button>
+          <Button variant="secondary" fullWidth onClick={() => { setTab("timeline"); setMoreOpen(false); }}>Timeline</Button>
+          <Link href="/loans" className="mt-1 text-center text-sm font-medium text-[var(--royal)] hover:underline" onClick={() => setMoreOpen(false)}>← Back to all loans</Link>
         </div>
       </Modal>
     </div>

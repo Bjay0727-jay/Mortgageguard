@@ -120,7 +120,7 @@ export default function IntegrationsPage() {
           <h2 className="text-sm font-semibold text-[var(--gray-900)]">Connected</h2>
           {connected.map((c) => (
             <Card key={c.id}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-semibold text-[var(--gray-900)]">{c.name}</p>

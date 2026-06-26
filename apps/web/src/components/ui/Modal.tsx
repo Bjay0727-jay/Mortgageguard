@@ -95,7 +95,11 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className={cn(
+        "fixed inset-0 z-50 flex bg-black/50",
+        // Mobile: dock to the bottom as a sheet. Desktop: center it.
+        "items-end justify-center sm:items-center sm:p-4",
+      )}
       onMouseDown={(e) => {
         if (closeOnBackdrop && e.target === e.currentTarget) onClose();
       }}
@@ -109,13 +113,16 @@ export function Modal({
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         className={cn(
-          "w-full rounded-[var(--radius-xl)] bg-white shadow-[var(--shadow-xl)] outline-none",
-          "max-h-[90vh] overflow-y-auto",
+          "flex w-full flex-col bg-white shadow-[var(--shadow-xl)] outline-none",
+          // Mobile: full-width bottom sheet, rounded top only, tall.
+          "max-h-[92vh] rounded-t-[var(--radius-xl)]",
+          // Desktop: centered card capped by size.
+          "sm:max-h-[90vh] sm:rounded-[var(--radius-xl)]",
           SIZES[size],
         )}
       >
         {(title || description) && (
-          <div className="border-b border-[var(--gray-200)] px-6 py-4">
+          <div className="flex-shrink-0 border-b border-[var(--gray-200)] px-6 py-4">
             {title && (
               <h2 id={titleId} className="text-lg font-semibold text-[var(--gray-900)]">
                 {title}
@@ -128,9 +135,10 @@ export function Modal({
             )}
           </div>
         )}
-        <div className="px-6 py-5">{children}</div>
+        {/* Body scrolls; header + footer stay pinned. */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-[var(--gray-200)] px-6 py-4">
+          <div className="flex flex-shrink-0 items-center justify-end gap-2 border-t border-[var(--gray-200)] px-6 py-4 [padding-bottom:calc(1rem+env(safe-area-inset-bottom))] sm:[padding-bottom:1rem]">
             {footer}
           </div>
         )}
