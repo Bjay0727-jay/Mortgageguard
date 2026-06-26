@@ -39,7 +39,7 @@ export interface ComplianceEvent {
 
 export interface AuditEvent {
   type: string;
-  entityType: "loan" | "document" | "program" | "user" | "company";
+  entityType: "loan" | "document" | "program" | "user" | "company" | "regulatory_source";
   entityId: string;
   companyId: string;
   userId: string | null;

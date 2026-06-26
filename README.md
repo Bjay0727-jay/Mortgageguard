@@ -47,11 +47,40 @@ A compliance-first CRM for mortgage brokers, lenders, and servicers. Dynamically
 - `GET /api/v1/compliance/tx-documents` — TX-SML document library
 - `GET /api/v1/compliance/tx-documents/:loanId` — Required docs for specific loan
 
-### Programs (protected)
-- `GET /api/v1/programs` — List compliance programs with summary
-- `POST /api/v1/programs` — Create program
-- `PUT /api/v1/programs/:id` — Update program status
-- `POST /api/v1/programs/:id/upload` — Upload program document
+### Programs (protected) — source-backed compliance control center
+- `GET /api/v1/programs` — List programs with computed integrity status, evidence + regulatory basis, and a summary
+- `POST /api/v1/programs/setup-required` — Seed the required source-backed programs + global catalog (idempotent)
+- `POST /api/v1/programs/setup-recommended` — Seed optional recommended programs (idempotent)
+- `POST /api/v1/programs` — Create an ad-hoc program
+- `PUT /api/v1/programs/:id` — Update a program
+- `GET /api/v1/programs/:id` — Program detail (overview, current document, evidence checklist, regulatory basis, history)
+- `POST /api/v1/programs/:id/documents` (alias `/:id/upload`) — Upload a new program document version
+- `POST /api/v1/programs/:id/evidence` — Attach / mark an evidence requirement (uploaded | accepted | not_applicable)
+- `POST /api/v1/programs/:id/reviews` — Record a periodic program review
+- `GET /api/v1/programs/:id/versions` · `/:id/download` · `/:id/versions/:versionId/download`
+
+### Regulatory Source Registry (protected)
+- `GET /api/v1/regulatory-sources` — List authoritative sources (eCFR / Federal Register / agency guidance) with verification status
+- `GET /api/v1/regulatory-sources/:id` — Single source
+- `POST /api/v1/regulatory-sources/:id/mark-verified` — Manually mark a source verified (sets `last_verified_at`, `verification_status=verified`, `next_verification_due_at` default +180d; emits `regulatory_source.verified`)
+
+#### Company compliance programs (company-level controls)
+
+Distinct from **loan-level** required documents (LE/CD, disclosures, appraisal — checked per loan), these are periodically-reviewed *company* controls:
+
+| Program | Required by | Conditional |
+|---------|-------------|-------------|
+| AML Program | 31 CFR 1029.210 | — |
+| Red Flags Program | 16 CFR 681.1 | — |
+| Information Security Program | 16 CFR Part 314 | — |
+| Loan Originator and Lender Compensation Agreements | 12 CFR 1026.36 & 1026.25(c)(2) | — |
+| Remote Work Policy | State licensing / GLBA Safeguards | Only when `companies.allows_remote_work = true` |
+
+Optional **recommended** programs: Ability-to-Repay Underwriting, Quality Control / Compliance Manual, Advertising / Social Media, E-Sign Act Procedures, Personnel / Employee Policies.
+
+Each required program carries **evidence requirements** (e.g. AML: policy, senior-management approval, designated officer, training, independent testing, SAR escalation, recordkeeping) and **regulatory source links** (citation + eCFR + rulemaking + agency guidance URLs) for a click-through audit trail.
+
+**Program status** (derived integrity): `missing` → `incomplete` → `current`, plus `review_due`, `overdue`, `source_review_due`, `not_applicable`, `archived`. A program is **current** only when its document is valid (status in `uploaded|current|approved`; `superseded|rejected|deleted|expired|failed|quarantined` never count), an owner + review dates are set, all required evidence is satisfied or N/A, a regulatory source is linked, and that source is not past its verification date. The dashboard “Upload required compliance program documents” step is complete only when integrity passes, and dashboard **Top actions** surface missing program docs/evidence, overdue reviews, **source verification due**, and an unknown remote-work setting. This document + evidence + verified-source packet also feeds the examiner evidence packet.
 
 ### Reports (protected)
 - `GET /api/v1/reports/transaction-log?format=json|csv` — TX transaction log (all 17 fields)

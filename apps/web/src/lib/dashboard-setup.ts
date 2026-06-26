@@ -21,9 +21,16 @@ export const REQUIRED_PROGRAM_SETUP = [
   "AML Program",
   "Red Flags Program",
   "Information Security Program",
-  "LO Compensation Agreements",
+  "Loan Originator and Lender Compensation Agreements",
   "Remote Work Policy",
 ] as const;
+
+// Program statuses that mean a required control still needs work.
+const PROGRAM_NEEDS_WORK = ["missing", "incomplete", "overdue", "source_review_due", "review_due"];
+
+function programCount(programs: DashboardSetupData["programs"], statuses: string[]): number {
+  return programs.filter((p) => statuses.includes(p.status)).reduce((sum, p) => sum + p.count, 0);
+}
 
 export function isDefaultAdmin(user?: DashboardSetupData["user"]): boolean {
   const name = user?.name?.toLowerCase() || "";
@@ -31,8 +38,13 @@ export function isDefaultAdmin(user?: DashboardSetupData["user"]): boolean {
   return Boolean(user?.mustChangePassword || name === "administrator" || email.includes("admin@"));
 }
 
+// Program setup is "done" only when at least one program is current and no
+// required program is still missing/incomplete/overdue or has a source review
+// due — i.e. the source-backed integrity checks are acceptable.
 export function hasProgramSetup(programs: DashboardSetupData["programs"]): boolean {
-  return programs.some((program) => ["current", "overdue", "draft"].includes(program.status) && program.count > 0);
+  const current = programCount(programs, ["current"]);
+  const needsWork = programCount(programs, PROGRAM_NEEDS_WORK);
+  return current > 0 && needsWork === 0;
 }
 
 export function buildSetupChecklist(data: DashboardSetupData): SetupChecklistItem[] {
@@ -157,7 +169,13 @@ export function deriveTopActions(data: TopActionsInput): TopAction[] {
     (loan) => (loan.docs_required ?? 0) > (loan.docs_complete ?? 0),
   );
   const overduePrograms = data.programs
-    .filter((program) => program.status === "overdue")
+    .filter((program) => ["overdue", "review_due"].includes(program.status))
+    .reduce((sum, program) => sum + program.count, 0);
+  const incompletePrograms = data.programs
+    .filter((program) => ["missing", "incomplete"].includes(program.status))
+    .reduce((sum, program) => sum + program.count, 0);
+  const sourceReviewDue = data.programs
+    .filter((program) => program.status === "source_review_due")
     .reduce((sum, program) => sum + program.count, 0);
 
   return [
@@ -195,6 +213,24 @@ export function deriveTopActions(data: TopActionsInput): TopAction[] {
       href: "/loans?score=passing",
       cta: "Review Loans",
       count: data.passingLoans,
+      priority: "Medium",
+    },
+    {
+      id: "complete-programs",
+      title: "Complete required program setup",
+      description: "Upload program documents and evidence for missing or incomplete controls.",
+      href: "/programs",
+      cta: "Open Programs",
+      count: incompletePrograms,
+      priority: "High",
+    },
+    {
+      id: "verify-sources",
+      title: "Verify regulatory sources",
+      description: "Re-verify the authoritative sources backing your compliance programs.",
+      href: "/programs",
+      cta: "Verify Sources",
+      count: sourceReviewDue,
       priority: "Medium",
     },
   ];

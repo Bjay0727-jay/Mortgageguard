@@ -215,6 +215,23 @@ CREATE TABLE IF NOT EXISTS compliance_programs (
 ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS file_path TEXT;
 ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS owner VARCHAR(255);
 ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS notes TEXT;
+-- Source-backed program catalog columns (Prompt 15A).
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS program_key VARCHAR(100);
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS is_conditionally_required BOOLEAN DEFAULT false;
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS applicable BOOLEAN;
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS required_document_type VARCHAR(100);
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS required_document_name VARCHAR(255);
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS review_frequency_months INTEGER DEFAULT 12;
+ALTER TABLE compliance_programs ADD COLUMN IF NOT EXISTS document_status VARCHAR(50);
+-- required_by may now hold a full citation, widen it.
+ALTER TABLE compliance_programs ALTER COLUMN required_by TYPE VARCHAR(255);
+-- One catalog program per company.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_company_key ON compliance_programs(company_id, program_key) WHERE program_key IS NOT NULL;
+
+-- Conditional Remote Work Policy requirement is driven by this flag.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS allows_remote_work BOOLEAN;
 
 -- ─── Compliance Program Versions (upload history) ───
 CREATE TABLE IF NOT EXISTS compliance_program_versions (
@@ -235,6 +252,96 @@ CREATE INDEX IF NOT EXISTS idx_program_versions_program ON compliance_program_ve
 CREATE INDEX IF NOT EXISTS idx_program_versions_company ON compliance_program_versions(company_id);
 
 CREATE INDEX IF NOT EXISTS idx_programs_company ON compliance_programs(company_id);
+
+-- ─── Regulatory Source Registry (global catalog) ───
+CREATE TABLE IF NOT EXISTS regulatory_sources (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  source_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  citation TEXT NOT NULL,
+  jurisdiction TEXT NOT NULL,
+  agency TEXT,
+  source_type TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  rulemaking_citation TEXT,
+  rulemaking_url TEXT,
+  guidance_url TEXT,
+  effective_date DATE,
+  last_verified_at TIMESTAMPTZ,
+  next_verification_due_at TIMESTAMPTZ,
+  verification_status TEXT NOT NULL DEFAULT 'unverified',
+  source_hash TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─── Program ⇄ Source links (global catalog) ───
+CREATE TABLE IF NOT EXISTS compliance_program_source_links (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  program_key TEXT NOT NULL,
+  source_key TEXT NOT NULL REFERENCES regulatory_sources(source_key),
+  citation TEXT NOT NULL,
+  applies_to TEXT NOT NULL DEFAULT 'program',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(program_key, source_key)
+);
+
+-- ─── Program evidence requirements (global catalog) ───
+CREATE TABLE IF NOT EXISTS compliance_program_evidence_requirements (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  program_key TEXT NOT NULL,
+  evidence_key TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  required BOOLEAN NOT NULL DEFAULT TRUE,
+  source_key TEXT REFERENCES regulatory_sources(source_key),
+  cadence_months INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(program_key, evidence_key)
+);
+
+-- ─── Program document requirements (global catalog) ───
+CREATE TABLE IF NOT EXISTS compliance_program_document_requirements (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  program_key TEXT NOT NULL,
+  document_type TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  required BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(program_key, document_type)
+);
+
+-- ─── Program evidence (company-uploaded / attested) ───
+CREATE TABLE IF NOT EXISTS compliance_program_evidence (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  program_id UUID NOT NULL REFERENCES compliance_programs(id),
+  evidence_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'uploaded',
+  file_path TEXT,
+  file_name VARCHAR(255),
+  notes TEXT,
+  attested_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(program_id, evidence_key)
+);
+CREATE INDEX IF NOT EXISTS idx_program_evidence_company ON compliance_program_evidence(company_id);
+
+-- ─── Program reviews (review / attestation log) ───
+CREATE TABLE IF NOT EXISTS compliance_program_reviews (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  program_id UUID NOT NULL REFERENCES compliance_programs(id),
+  reviewed_by UUID REFERENCES users(id),
+  reviewed_at TIMESTAMPTZ DEFAULT NOW(),
+  next_review_due DATE,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_program_reviews_program ON compliance_program_reviews(program_id);
 
 -- ─── Reporting Deadlines ───
 CREATE TABLE IF NOT EXISTS reporting_deadlines (
