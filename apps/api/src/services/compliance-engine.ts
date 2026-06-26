@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────────
 import postgres from "postgres";
 import type { Env, ComplianceEvent } from "../env";
+import { deriveConditionalDocuments } from "../lib/loan-conditional-docs";
 
 // ─── Types ───
 interface ResolvedRule {
@@ -238,8 +239,31 @@ export async function evaluateGate(
     WHERE loan_id = ${loanId}
   `;
 
+  // Conditional mandatory documents (TX cash-out / reverse / wrap / ARM / company
+  // disclosure) have no required_documents row, so they must be gated here too —
+  // otherwise a loan could advance without uploading a newly-required document.
+  let conditionalReqs: GateRequirementRow[] = [];
+  const [loan] = await sql`SELECT property_state, loan_purpose, loan_product, loan_type, lien_position, texas_cashout_type, company_id FROM loans WHERE id = ${loanId}`;
+  if (loan) {
+    const [company] = await sql`SELECT entity_type FROM companies WHERE id = ${loan.company_id}`;
+    const present = new Set((gateRequirements as unknown as GateRequirementRow[]).map((r) => r.documentType));
+    conditionalReqs = deriveConditionalDocuments({
+      propertyState: loan.property_state,
+      loanPurpose: loan.loan_purpose,
+      loanProduct: loan.loan_product,
+      loanType: loan.loan_type,
+      lienPosition: loan.lien_position,
+      texasCashoutType: loan.texas_cashout_type,
+      companyEntityType: company?.entity_type,
+    })
+      .filter((d) => d.pipelineStage === targetStage && !present.has(d.documentType))
+      .map((d) => ({ requiredDocumentId: `cond:${d.documentType}`, documentType: d.documentType, displayName: d.displayName }));
+  }
+
+  const requirements = [...(gateRequirements as unknown as GateRequirementRow[]), ...conditionalReqs];
+
   const { unsatisfied, satisfiedCount } = computeGateSatisfaction({
-    requirements: gateRequirements as unknown as GateRequirementRow[],
+    requirements,
     documents: documents as unknown as LoanDocumentRow[],
     waivedRequiredDocumentIds: waived.map((w) => w.required_document_id),
   });
@@ -247,7 +271,7 @@ export async function evaluateGate(
   return {
     canAdvance: unsatisfied.length === 0,
     satisfiedCount,
-    requiredCount: gateRequirements.length,
+    requiredCount: requirements.length,
     unsatisfied: unsatisfied.map((u) => ({
       requiredDocumentId: u.requiredDocumentId,
       documentType: u.documentType,
@@ -257,7 +281,7 @@ export async function evaluateGate(
     // shouldn't hard-fail just because rules aren't loaded. The dashboard already
     // warns when Texas rules are missing. See buildStageReadiness for how this
     // becomes a warning (not a blocker).
-    warnings: gateRequirements.length === 0 ? ["No mandatory document requirements are configured for this stage."] : [],
+    warnings: requirements.length === 0 ? ["No mandatory document requirements are configured for this stage."] : [],
   };
 }
 

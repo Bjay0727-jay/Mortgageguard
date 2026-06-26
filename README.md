@@ -139,6 +139,55 @@ See MortgageGuard_MVP_WebUI_Guide_v3.docx for step-by-step instructions using Gi
 ## Cost
 ~$5/month for the MVP beta period (Cloudflare Workers Paid + Neon free tier).
 
+## Loan creation & processing (Prompt 21)
+
+MortgageGuard is a working loan-processing platform, not just a dashboard. Loans are the central transaction record; data-driven rules generate the checklist; documents satisfy checklist items; stage gates prevent advancement until required items are present.
+
+### Creating a loan
+
+`POST /api/v1/loans` (capability `createLoan`) captures borrower/applicant, property, loan details (purpose/product/type/lien/occupancy/term + Texas cash-out type), originator/lender, and processor/compliance owners. `GET /api/v1/loans/new/context` returns the wizard's licensed states, company entity type, available enums, assignable users, and per-state rule-load status + warnings. On create the loan records the transaction-log entry timestamp + 7-day due date, queues checklist generation, and emits `loan.created`.
+
+### Transaction log
+
+`lib/transaction-log-integrity.ts` `deriveTransactionLogCompleteness(loan)` reports `{ complete, missingFields, warnings, status, dueAt }`. The 17 TX-SML fields are captured at creation; a current entry is expected within 7 days of application. `transaction_log_status` is `complete | missing_fields | overdue`.
+
+### Dynamic + conditional checklist
+
+`GET /api/v1/loans/:id/checklist` merges rules-derived documents (from `state_rules`/`required_documents`, filtered by state + loan attributes) with a tested conditional catalog (`lib/loan-conditional-docs.ts`) that encodes combinations the single-value filters can't express. Texas matrix (documented + tested):
+
+| Condition | Adds |
+|-----------|------|
+| Every TX loan | Notice of Penalties; Mortgage Company **or** Banker Disclosure (by entity type) |
+| `texasCashoutType = tx_50a6` (or purpose `home_equity_50a6`) | Home Equity Disclosure, FMV Acknowledgement, Discount Point Acknowledgement |
+| `texasCashoutType = tx_50f2` | Refinance of Home Equity Notice 50(f)(2) |
+| Reverse (`loanProduct=reverse`/reverse purpose) | ECOA Appraisal Notice, Servicing Disclosure, TALC, Certificate of Counseling, TX Reverse Mortgage Disclosure |
+| Wrap (`wrap_mortgage` or `lienPosition=wrap`) | Wrap Mortgage Disclosure, Tex. Prop. Code §5.016 Notice |
+| `loanType=arm` | ARM Program Disclosure |
+
+If rules aren't loaded for the state, the loan is still created but a warning + auto-task surface (no silent empty-but-compliant checklist).
+
+### Updating a loan
+
+`PATCH /api/v1/loans/:id` (capability `updateLoan`). Changing a rule-affecting field (state, purpose, cash-out type, product, type, lien, occupancy) re-resolves rules: newly required `compliance_checks` are inserted, no-longer-applicable checks become `na` (uploaded documents are preserved), the score is recalculated, and `loan.rules_resolved` + `loan.updated` + a `checklist_changed` timeline event are emitted.
+
+### Tasks / work queue
+
+`loan_tasks` with `GET/POST /api/v1/loans/:id/tasks` and `PATCH /api/v1/loans/:id/tasks/:taskId` (`assignLoanTasks`/`manageLoanTasks`). Tasks auto-generate idempotently (unique `loan_id, auto_key`) for missing required documents, unloaded state rules, and transaction-log gaps, and auto-complete when resolved.
+
+### Loan integrity
+
+`lib/loan-integrity.ts` `deriveLoanIntegrity(...)` rolls checklist + tasks + transaction-log + rule-load + score into `{ status: clean|needs_attention|blocked|critical, blockers, warnings, nextActions }`, surfaced at `GET /api/v1/loans/:id/integrity`. Document statuses that satisfy gates: `uploaded|signed|delivered`; invalid: `rejected|expired|deleted|superseded|failed|quarantined`.
+
+### Stage gates & audit
+
+Pipeline stages and the gate-readiness model are unchanged (`GET /:id/gate/:targetStage`, `POST /:id/advance` with authorized override). Append-only timeline + audit events: `loan.created/updated/rules_resolved/checklist_changed/task_created/task_updated/task_completed/document_uploaded/stage_advanced/stage_override`.
+
+### All-state architecture
+
+Rules are data-driven (`state_rules` + `required_documents`, effective-dated). Texas is implemented first; other states are added by seeding rows (no code change). MVP conditional rules live in a tested backend catalog/helper, never in UI components.
+
+> Phase note: this PR is the **backend foundation** (model, APIs, helpers, tasks, conditional rules, tests). The multi-step creation wizard + processing-workspace UI land in a follow-up.
+
 ## Initial admin and invite-only onboarding
 
 MortgageGuard seeds one bootstrap administrator for first-time setup only:
