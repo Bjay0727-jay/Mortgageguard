@@ -106,6 +106,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/programs", label: "Programs", icon: <IconPrograms />, capability: "viewCompliancePrograms" },
       { href: "/reports", label: "Reports", icon: <IconReports />, capability: "viewReports" },
+      { href: "/evidence-packets", label: "Evidence Packets", icon: <IconReports />, capability: "viewEvidencePackets" },
     ],
   },
   {

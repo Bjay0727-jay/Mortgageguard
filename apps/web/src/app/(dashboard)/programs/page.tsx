@@ -160,11 +160,16 @@ export default function ProgramsPage() {
       <PageHeader
         title="Compliance Programs"
         description="Source-backed company compliance controls — documents, evidence, and the regulations behind each requirement."
-        actions={canManage && (
+        actions={(
           <>
-            <Button variant="secondary" onClick={() => setup("required")}>Set up required programs</Button>
-            <Button variant="secondary" onClick={() => setup("recommended")}>Add recommended</Button>
-            <Button onClick={() => setAdding(true)}>Add program</Button>
+            {can("generateEvidencePackets") && <a href="/evidence-packets?type=programs" className="inline-flex items-center rounded-md border border-[var(--gray-300)] px-3 py-1.5 text-sm font-semibold text-[var(--royal)] hover:bg-[var(--gray-50)]">Generate Program Evidence Packet</a>}
+            {canManage && (
+              <>
+                <Button variant="secondary" onClick={() => setup("required")}>Set up required programs</Button>
+                <Button variant="secondary" onClick={() => setup("recommended")}>Add recommended</Button>
+                <Button onClick={() => setAdding(true)}>Add program</Button>
+              </>
+            )}
           </>
         )}
       />

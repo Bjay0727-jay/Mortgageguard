@@ -430,6 +430,9 @@ export default function LoanDetailPage() {
         <ScoreBadge score={loan.compliance_score} />
         <div className="ml-auto flex items-center gap-3">
           <span className="text-sm text-[var(--gray-500)]">Current: <strong className="text-[var(--gray-800)]">{formatStage(loan.status)}</strong></span>
+          {can("generateEvidencePackets") && (
+            <Link href={`/evidence-packets?type=loan&loanId=${loan.id}`} className="hidden text-sm font-semibold text-[var(--royal)] hover:underline lg:inline">Generate Loan Evidence Packet</Link>
+          )}
           {showAdvance && (
             <Button onClick={() => openGateReview(nextStage!)} loading={gateLoading} className="hidden lg:inline-flex">
               {gateLoading ? "Checking Gate…" : `Advance to ${formatStage(nextStage!)}`}

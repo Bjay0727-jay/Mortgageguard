@@ -156,7 +156,10 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Reports" />
+      <PageHeader
+        title="Reports"
+        actions={can("generateEvidencePackets") ? <a href="/evidence-packets?type=reporting" className="inline-flex items-center rounded-md bg-[var(--royal)] px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90">Generate Reporting Evidence Packet</a> : null}
+      />
       {error && <div role="alert" className="rounded-md bg-[var(--red-pl)] p-3 text-sm text-[var(--red)]">{error}</div>}
 
       <Tabs tabs={tabs} value={tab} onChange={(t) => setTab(t as typeof tab)} aria-label="Report sections" />

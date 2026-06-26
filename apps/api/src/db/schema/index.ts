@@ -521,6 +521,33 @@ export const reportFilingEvents = pgTable("report_filing_events", {
   index("filing_events_company_idx").on(t.companyId),
 ]);
 
+// ─── EVIDENCE PACKETS (examiner-ready packet history; Prompt 14) ───
+export const evidencePackets = pgTable("evidence_packets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  packetKey: text("packet_key").notNull(),
+  packetType: text("packet_type").notNull(),
+  title: text("title").notNull(),
+  status: text("status").default("generated").notNull(),
+  scope: jsonb("scope").notNull(),
+  r2KeyJson: text("r2_key_json"),
+  r2KeyHtml: text("r2_key_html"),
+  r2KeyPdf: text("r2_key_pdf"),
+  r2KeyZip: text("r2_key_zip"),
+  generatedBy: uuid("generated_by").references(() => users.id),
+  generatedAt: timestamp("generated_at").defaultNow(),
+  rowCount: integer("row_count").default(0),
+  warningCount: integer("warning_count").default(0),
+  blockerCount: integer("blocker_count").default(0),
+  hash: text("hash"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("evidence_packets_company_idx").on(t.companyId),
+  index("evidence_packets_type_idx").on(t.companyId, t.packetType),
+]);
+
 // ─── INTEGRATIONS ───
 export const integrations = pgTable("integrations", {
   id: uuid("id").primaryKey().defaultRandom(),
