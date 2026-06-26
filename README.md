@@ -265,6 +265,10 @@ Wired (best-effort, alongside existing audit) into: **setup rules loaded**, **co
 ### Processing & local testing
 Run the processor manually via `POST /api/v1/outbox/process` (or the page's "Process pending" button). **Scheduled processing** can be enabled later by adding a Worker `scheduled(event, env, ctx)` handler that calls `ctx.waitUntil(processPendingOutboxEvents(sql, buildDefaultHandlers(env), { limit: 50 }))` — the processor logic is already isolated and needs no change. To add a new outbox event: call `tryCreateOutboxEvent(sql, { companyId, eventType, aggregateType, aggregateId, idempotencyKey, payload })` after the domain write.
 
+## Schema drift validation (Prompt 19)
+
+`pnpm db:validate` fails the build when the Drizzle schema, `scripts/db-setup.sql`, seed/catalog keys, the capability catalog, or the PBKDF2 guardrail drift apart — no live database or Cloudflare credentials required. It parses the Drizzle schema (source of truth) and checks `db-setup.sql` is a superset, plus required indexes, idempotent SQL, referenced-vs-defined capabilities, required catalog keys, and `PBKDF2_ITERATIONS <= 100000`. Runs in CI ("Validate schema drift" step). Supports `--strict` (warnings fail) and `--json`. See [docs/schema-drift-validation.md](docs/schema-drift-validation.md). (Its first run caught a real gap: the runtime uses `loan_documents` but `db-setup.sql` only created a legacy `documents` table — now fixed.)
+
 ## Loan processing workspace (Prompt 21C)
 
 `/loans/:id` is a full processing workspace organized into eight tabs, with state preserved via `?tab=` (`overview | checklist | documents | tasks | transaction-log | stage-gate | notes | timeline`). All operational logic lives in the pure, tested helper `lib/loan-workspace.ts` — never hardcoded in React.

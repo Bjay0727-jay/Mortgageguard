@@ -38,6 +38,10 @@ jobs:
       - name: Test Shared
         run: cd packages/shared && npx vitest run
 
+      # Fail the build on schema/capability/idempotency drift before deploy.
+      - name: Validate schema drift
+        run: cd apps/api && npx tsx ../../scripts/validate-schema-drift.ts
+
   # ─── Database Migration (only on main push) ───
   migrate:
     name: Database Migration
