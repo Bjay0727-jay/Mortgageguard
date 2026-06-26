@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import type { Env } from "../env";
 import { requireCapability } from "../middleware/auth";
+import { tryCreateOutboxEvent } from "../lib/outbox";
 
 export const regulatorySourceRoutes = new Hono<{ Bindings: Env }>();
 
@@ -73,5 +74,6 @@ regulatorySourceRoutes.post("/:id/mark-verified", requireCapability("verifyRegul
         notes = COALESCE(${body.notes || null}, notes), updated_at = NOW()
     WHERE id = ${id} RETURNING *`;
   await audit(c, user, { type: "regulatory_source.verified", entityId: id, action: "verify_regulatory_source", details: { sourceKey: source.source_key, nextVerificationDueAt: nextDue } });
+  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "regulatory_source.verified", aggregateType: "regulatory_source", aggregateId: id, idempotencyKey: `source:${id}:verified:${nextDue}`, payload: { sourceKey: source.source_key, nextVerificationDueAt: nextDue, actorUserId: user.userId } });
   return c.json({ source: withDerivedStatus(source) });
 });

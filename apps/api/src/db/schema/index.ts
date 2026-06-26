@@ -284,6 +284,23 @@ export const loanTimeline = pgTable("loan_timeline", {
   index("timeline_date_idx").on(t.occurredAt),
 ]);
 
+// ─── LOAN NOTES / CORRESPONDENCE (Prompt 21C) ───
+export const loanNotes = pgTable("loan_notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  loanId: uuid("loan_id").notNull().references(() => loans.id),
+  noteType: text("note_type").default("general").notNull(),
+  body: text("body").notNull(),
+  visibility: text("visibility").default("internal").notNull(),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("loan_notes_loan_idx").on(t.loanId),
+  index("loan_notes_company_idx").on(t.companyId),
+]);
+
 // ─── COMPLIANCE PROGRAMS ───
 // Company-level policies (AML, Red Flags, InfoSec, etc.)
 export const compliancePrograms = pgTable("compliance_programs", {
@@ -546,6 +563,33 @@ export const evidencePackets = pgTable("evidence_packets", {
 }, (t) => [
   index("evidence_packets_company_idx").on(t.companyId),
   index("evidence_packets_type_idx").on(t.companyId, t.packetType),
+]);
+
+// ─── EVENT OUTBOX (transactional outbox / audit reliability; Prompt 18) ───
+export const eventOutbox = pgTable("event_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id"),
+  eventType: text("event_type").notNull(),
+  aggregateType: text("aggregate_type").notNull(),
+  aggregateId: uuid("aggregate_id"),
+  payload: jsonb("payload").notNull(),
+  status: text("status").default("pending").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(5).notNull(),
+  nextAttemptAt: timestamp("next_attempt_at").defaultNow(),
+  lastError: text("last_error"),
+  idempotencyKey: text("idempotency_key"),
+  queueMessageId: text("queue_message_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  processingStartedAt: timestamp("processing_started_at"),
+  processedAt: timestamp("processed_at"),
+  deadLetteredAt: timestamp("dead_lettered_at"),
+}, (t) => [
+  index("event_outbox_status_next_attempt_idx").on(t.status, t.nextAttemptAt),
+  index("event_outbox_company_created_idx").on(t.companyId, t.createdAt),
+  index("event_outbox_event_type_created_idx").on(t.eventType, t.createdAt),
+  uniqueIndex("event_outbox_idempotency_key_idx").on(t.idempotencyKey),
 ]);
 
 // ─── INTEGRATIONS ───

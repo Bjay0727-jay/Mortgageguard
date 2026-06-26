@@ -243,6 +243,43 @@ New tables (`scripts/db-setup.sql`, idempotent): `reporting_obligations`, `repor
 
 > Not an official NMLS submission: trackers record filing **evidence** (confirmation numbers + receipts), not NMLS-format submissions.
 
+## Audit reliability — event outbox (Prompt 18)
+
+Critical compliance events are **durable**. Instead of relying only on a best-effort queue/audit write, a domain action records a row in `event_outbox` (transactional-outbox pattern), which a processor later delivers with retry, backoff, and dead-lettering — so an audit/queue hiccup can't silently lose compliance evidence.
+
+### Lifecycle & statuses
+`pending → processing → processed`, or on delivery failure `failed` (rescheduled) and finally `dead_letter` after `max_attempts` (default 5). Backoff via `deriveNextAttemptAt`: attempt 1 → +1m, 2 → +5m, 3 → +15m, 4 → +1h, 5 → dead-letter. All pure and unit-tested (pass `now`).
+
+### Helpers
+`lib/outbox.ts` — `createOutboxEvent` (idempotent on `idempotency_key`), `tryCreateOutboxEvent` (never throws into the caller), `claimOutboxEvents` (`FOR UPDATE SKIP LOCKED`), `markOutboxProcessed|Failed|DeadLetter`, `deriveNextAttemptAt`, `buildOutboxIdempotencyKey`, `redactPayload`. `lib/outbox-processor.ts` — `processPendingOutboxEvents(sql, handlers, opts)` returns `{ claimed, processed, failed, deadLettered, skipped }`. `lib/outbox-handlers.ts` — `audit` / `queue` / `notification` / `webhook` / `noop` dispatch (MVP delivers everything to the audit queue; notification/webhook are placeholders for later prompts).
+
+### Idempotency & redaction
+Each event carries a deterministic idempotency key (e.g. `loan:{id}:loan.created`, `report:{deadlineId}:filed:{confirmation}`, `packet:{id}:generated`) so a retried domain action never duplicates a row. Payloads are normalized to JSON and **redacted** on write and again in the API/UI — any key containing `password / token / secret / apiKey / clientSecret / authorization / credential` becomes `[REDACTED]`. Never store raw secrets, file contents, or PII beyond what audit already stores.
+
+### API & UI
+`GET /api/v1/outbox` (summary + company-scoped list), `GET /api/v1/outbox/:id`, `POST /api/v1/outbox/process` (manual processor run), `POST /api/v1/outbox/:id/retry`, `POST /api/v1/outbox/:id/dead-letter`. Capabilities: `viewOutbox`, `processOutbox`, `retryOutboxEvents`, `deadLetterOutboxEvents`, `viewAuditReliability`. The **Admin → Audit Outbox** page shows status summary cards, an event table (retry / process now / dead-letter), and a redacted payload detail modal. Outbox operations are themselves audited (`outbox.processed|retried|dead_lettered`).
+
+### Outbox-backed workflows
+Wired (best-effort, alongside existing audit) into: **setup rules loaded**, **company settings updated**, **regulatory source verified**, **loan created**, **loan stage advanced/overridden**, **report filed**, **evidence packet generated**. Other event families remain direct-audit for now and can be migrated incrementally by adding a `tryCreateOutboxEvent(sql, {...})` call next to their existing audit send.
+
+### Processing & local testing
+Run the processor manually via `POST /api/v1/outbox/process` (or the page's "Process pending" button). **Scheduled processing** can be enabled later by adding a Worker `scheduled(event, env, ctx)` handler that calls `ctx.waitUntil(processPendingOutboxEvents(sql, buildDefaultHandlers(env), { limit: 50 }))` — the processor logic is already isolated and needs no change. To add a new outbox event: call `tryCreateOutboxEvent(sql, { companyId, eventType, aggregateType, aggregateId, idempotencyKey, payload })` after the domain write.
+
+## Loan processing workspace (Prompt 21C)
+
+`/loans/:id` is a full processing workspace organized into eight tabs, with state preserved via `?tab=` (`overview | checklist | documents | tasks | transaction-log | stage-gate | notes | timeline`). All operational logic lives in the pure, tested helper `lib/loan-workspace.ts` — never hardcoded in React.
+
+- **Overview** — command-center cards (compliance score, integrity, missing documents, open/overdue tasks, transaction-log status, stage gate, closing date) plus prioritized next actions, blockers, and warnings from the loan integrity helper. Each next action deep-links to the resolving tab via `nextActionTab(...)`.
+- **Checklist** — the compliance work queue with search and filters (all / missing / required / uploaded / invalid / not-applicable / current-stage / federal / state). `checklistRowState` enforces that only `uploaded | signed | delivered` documents satisfy a row; `rejected | expired | deleted | superseded | failed | quarantined` never count.
+- **Documents** — every uploaded document (current and superseded) with status, uploader, date, download, and replace. Superseded/deleted documents stay visible for audit history.
+- **Tasks** — auto + manual work queue with filters (open / overdue / auto / manual / complete) and complete actions; auto-tasks carry an `auto_key` and de-duplicate.
+- **Transaction Log** — the 21 Texas transaction-log fields with present/missing indicators, the missing-field count that will surface as export warnings, and a link to the Reports export.
+- **Stage Gate** — current/next stage, gate preview/advance, and blockers vs warnings split (`splitGateReadiness`); invalid transitions are never overrideable.
+- **Notes / Correspondence** — lightweight company- and loan-scoped notes (`loan_notes`, soft-deleted) with types (general / borrower / lender / processor / compliance / condition) and visibility; create/update/delete are audited (`loan.note_created|updated|deleted`) and timelined.
+- **Timeline / Audit** — loan event history with category filters (documents / tasks / stage / notes / evidence-packets / audit), backed by `GET /loans/:id/timeline?type=`.
+
+Notes API: `GET|POST /api/v1/loans/:id/notes`, `PATCH|DELETE /api/v1/loans/:id/notes/:noteId` (cap `manageLoanNotes`). The workspace integrates **evidence packet** generation (Prompt 14, `?type=loan&loanId=`) and the **transaction-log export** (Prompt 13). Dashboard loan top-actions deep-link to the relevant tab (e.g. a single missing-docs loan → `/loans/:id?tab=checklist`).
+
 ## Examiner evidence packets (Prompt 14)
 
 Assembles loan / program / reporting / setup data into downloadable examiner-ready packets. Pure builders (`lib/evidence-packets.ts`) turn already-fetched data into a consistent `EvidencePacketPayload` (sections + warnings + blockers + summary + integrity hash); the route layer fetches inputs, renders, stores, and audits.

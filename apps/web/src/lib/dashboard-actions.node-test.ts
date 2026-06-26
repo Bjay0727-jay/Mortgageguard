@@ -31,8 +31,8 @@ assert.equal(byId["upload-docs"].count, 1, "one loan has missing docs");
 assert.equal(byId["overdue-programs"].count, 2);
 assert.equal(byId["file-reports"].count, 3);
 assert.equal(byId["advance-loans"].count, 4);
-// single missing-doc loan links straight to that loan; otherwise to the filtered list
-assert.equal(byId["upload-docs"].href, "/loans/loan-1");
+// single missing-doc loan deep-links to that loan's checklist tab; otherwise to the filtered list
+assert.equal(byId["upload-docs"].href, "/loans/loan-1?tab=checklist");
 
 const multi = deriveTopActions({
   attentionLoans: [

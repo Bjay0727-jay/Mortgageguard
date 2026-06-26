@@ -13,6 +13,7 @@ import { hasCapability } from "@mortgageguard/shared";
 import { deriveConditionalDocuments } from "../lib/loan-conditional-docs";
 import { deriveTransactionLogCompleteness } from "../lib/transaction-log-integrity";
 import { deriveLoanIntegrity } from "../lib/loan-integrity";
+import { tryCreateOutboxEvent } from "../lib/outbox";
 import {
   LOAN_STAGES,
   type LoanStage,
@@ -294,6 +295,7 @@ loanRoutes.post("/", requireCapability("createLoan"), zValidator("json", createL
     INSERT INTO loan_timeline (loan_id, event_type, stage_to, description, performed_by)
     VALUES (${loan.id}, 'loan_created', 'application', 'Loan application created', ${user.userId})
   `;
+  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "loan.created", aggregateType: "loan", aggregateId: loan.id, idempotencyKey: `loan:${loan.id}:loan.created`, payload: { loanNumber: body.loanNumber, state: body.propertyState, actorUserId: user.userId } });
 
   return c.json({ loan }, 201);
 });
@@ -484,6 +486,7 @@ loanRoutes.post("/:id/advance", requireCapability("advanceLoanStage"), zValidato
     ipAddress: c.req.header("cf-connecting-ip") || "unknown",
     timestamp: new Date().toISOString(),
   });
+  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: isOverride ? "loan.stage_override" : "loan.stage_advanced", aggregateType: "loan", aggregateId: loanId, idempotencyKey: `loan:${loanId}:stage:${previousStage}->${targetStage}:${Date.now()}`, payload: { from: previousStage, to: targetStage, override: isOverride, actorUserId: user.userId } });
 
   return c.json({ success: true, previousStage, newStage: targetStage, gate: readiness, override: isOverride });
 });
@@ -494,24 +497,133 @@ loanRoutes.get("/:id/timeline", async (c) => {
   const loanId = c.req.param("id");
   const limit = Math.min(parseInt(c.req.query("limit") || "50"), 100);
   const offset = parseInt(c.req.query("offset") || "0");
+  const type = c.req.query("type") || null; // documents|tasks|stage|notes|audit|loan
   const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
 
   // Verify loan belongs to user's company
   const [loan] = await sql`SELECT id FROM loans WHERE id = ${loanId} AND company_id = ${user.companyId}`;
   if (!loan) return c.json({ error: "Loan not found" }, 404);
 
+  // Category → event_type LIKE patterns. Applied as a single ILIKE-ANY filter so
+  // the response shape stays identical when no type is requested.
+  const TYPE_PATTERNS: Record<string, string[]> = {
+    documents: ["document_%", "%document%"],
+    tasks: ["task_%", "%task%"],
+    stage: ["stage_%", "%stage%"],
+    notes: ["note_%", "%note%"],
+    "evidence-packets": ["evidence_packet%", "%evidence_packet%"],
+    audit: ["loan_updated", "rules_resolved", "checklist_%", "%checklist%"],
+  };
+  const patterns = type && TYPE_PATTERNS[type] ? TYPE_PATTERNS[type] : null;
+
+  // Pass the pattern array (or NULL) as a top-level param so the filter is a
+  // single, stable query: NULL matches everything.
   const events = await sql`
     SELECT lt.*, u.name as performed_by_name
     FROM loan_timeline lt
     LEFT JOIN users u ON u.id = lt.performed_by
     WHERE lt.loan_id = ${loanId}
+      AND (${patterns}::text[] IS NULL OR lt.event_type ILIKE ANY(${patterns}::text[]))
     ORDER BY lt.occurred_at DESC
     LIMIT ${limit} OFFSET ${offset}
   `;
 
-  const [{ total }] = await sql`SELECT COUNT(*) as total FROM loan_timeline WHERE loan_id = ${loanId}`;
+  const [{ total }] = await sql`SELECT COUNT(*) as total FROM loan_timeline WHERE loan_id = ${loanId} AND (${patterns}::text[] IS NULL OR event_type ILIKE ANY(${patterns}::text[]))`;
 
-  return c.json({ events, pagination: { total: Number(total), limit, offset } });
+  return c.json({ events, pagination: { total: Number(total), limit, offset }, filter: { type } });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Loan notes / correspondence (Prompt 21C)
+// ─────────────────────────────────────────────────────────────
+const NOTE_TYPES = ["general", "borrower_follow_up", "lender_follow_up", "processor_note", "compliance_note", "condition_note"] as const;
+const NOTE_VISIBILITY = ["internal", "compliance"] as const;
+const noteSchema = z.object({
+  body: z.string().trim().min(1).max(5000),
+  noteType: z.enum(NOTE_TYPES).default("general"),
+  visibility: z.enum(NOTE_VISIBILITY).default("internal"),
+});
+const notePatchSchema = z.object({
+  body: z.string().trim().min(1).max(5000).optional(),
+  noteType: z.enum(NOTE_TYPES).optional(),
+  visibility: z.enum(NOTE_VISIBILITY).optional(),
+});
+
+async function loanInCompany(sql: any, loanId: string, companyId: string) {
+  const [loan] = await sql`SELECT id FROM loans WHERE id = ${loanId} AND company_id = ${companyId} AND is_deleted = false`;
+  return loan ?? null;
+}
+
+function noteAudit(c: any, user: any, loanId: string, type: string, noteId: string, details: Record<string, unknown>) {
+  return c.env.AUDIT_QUEUE.send({ type, entityType: "loan", entityId: loanId, companyId: user.companyId, userId: user.userId, action: type, details: { noteId, ...details }, ipAddress: c.req.header("cf-connecting-ip") || "unknown", timestamp: new Date().toISOString() });
+}
+
+// GET /api/v1/loans/:id/notes
+loanRoutes.get("/:id/notes", async (c) => {
+  const user = c.get("user");
+  const loanId = c.req.param("id");
+  const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
+  if (!(await loanInCompany(sql, loanId, user.companyId))) return c.json({ error: "Loan not found" }, 404);
+  const notes = await sql`
+    SELECT n.id, n.note_type, n.body, n.visibility, n.created_by, u.name AS created_by_name, n.created_at, n.updated_at
+    FROM loan_notes n LEFT JOIN users u ON u.id = n.created_by
+    WHERE n.loan_id = ${loanId} AND n.company_id = ${user.companyId} AND n.is_deleted = false
+    ORDER BY n.created_at DESC`;
+  return c.json({ notes });
+});
+
+// POST /api/v1/loans/:id/notes
+loanRoutes.post("/:id/notes", requireCapability("manageLoanNotes"), zValidator("json", noteSchema), async (c) => {
+  const user = c.get("user");
+  const loanId = c.req.param("id");
+  const { body, noteType, visibility } = c.req.valid("json");
+  const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
+  if (!(await loanInCompany(sql, loanId, user.companyId))) return c.json({ error: "Loan not found" }, 404);
+
+  const [note] = await sql`
+    INSERT INTO loan_notes (company_id, loan_id, note_type, body, visibility, created_by)
+    VALUES (${user.companyId}, ${loanId}, ${noteType}, ${body}, ${visibility}, ${user.userId}::uuid)
+    RETURNING id, note_type, body, visibility, created_by, created_at, updated_at`;
+  await sql`INSERT INTO loan_timeline (loan_id, event_type, description, metadata, performed_by) VALUES (${loanId}, 'note_created', 'Note added', ${JSON.stringify({ noteType, visibility })}, ${user.userId})`;
+  await noteAudit(c, user, loanId, "loan.note_created", note.id, { noteType, visibility });
+  return c.json({ note }, 201);
+});
+
+// PATCH /api/v1/loans/:id/notes/:noteId
+loanRoutes.patch("/:id/notes/:noteId", requireCapability("manageLoanNotes"), zValidator("json", notePatchSchema), async (c) => {
+  const user = c.get("user");
+  const loanId = c.req.param("id");
+  const noteId = c.req.param("noteId");
+  const { body, noteType, visibility } = c.req.valid("json");
+  const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
+  const [updated] = await sql`
+    UPDATE loan_notes SET
+      body = COALESCE(${body ?? null}, body),
+      note_type = COALESCE(${noteType ?? null}, note_type),
+      visibility = COALESCE(${visibility ?? null}, visibility),
+      updated_at = NOW()
+    WHERE id = ${noteId} AND loan_id = ${loanId} AND company_id = ${user.companyId} AND is_deleted = false
+    RETURNING id, note_type, body, visibility, created_by, created_at, updated_at`;
+  if (!updated) return c.json({ error: "Note not found" }, 404);
+  await sql`INSERT INTO loan_timeline (loan_id, event_type, description, metadata, performed_by) VALUES (${loanId}, 'note_updated', 'Note updated', ${JSON.stringify({ noteId })}, ${user.userId})`;
+  await noteAudit(c, user, loanId, "loan.note_updated", noteId, {});
+  return c.json({ note: updated });
+});
+
+// DELETE /api/v1/loans/:id/notes/:noteId (soft-delete for audit retention)
+loanRoutes.delete("/:id/notes/:noteId", requireCapability("manageLoanNotes"), async (c) => {
+  const user = c.get("user");
+  const loanId = c.req.param("id");
+  const noteId = c.req.param("noteId");
+  const sql = postgres(c.env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false });
+  const [deleted] = await sql`
+    UPDATE loan_notes SET is_deleted = true, updated_at = NOW()
+    WHERE id = ${noteId} AND loan_id = ${loanId} AND company_id = ${user.companyId} AND is_deleted = false
+    RETURNING id`;
+  if (!deleted) return c.json({ error: "Note not found" }, 404);
+  await sql`INSERT INTO loan_timeline (loan_id, event_type, description, metadata, performed_by) VALUES (${loanId}, 'note_deleted', 'Note deleted', ${JSON.stringify({ noteId })}, ${user.userId})`;
+  await noteAudit(c, user, loanId, "loan.note_deleted", noteId, {});
+  return c.json({ deleted: true, id: deleted.id });
 });
 
 // ─── PATCH /api/v1/loans/:id — Update a loan (re-resolves rules) ───

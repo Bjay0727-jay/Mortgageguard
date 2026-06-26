@@ -7,6 +7,7 @@ import { requireCapability } from "../middleware/auth";
 import { computeRulesStatus, type RulesStatus } from "../lib/rules-status";
 import { buildSetupStatus } from "../lib/setup-status";
 import { TEXAS_STATE_RULES, TEXAS_REQUIRED_DOCUMENTS, TEXAS_REPORTING_DEADLINES } from "../lib/texas-rules";
+import { tryCreateOutboxEvent } from "../lib/outbox";
 
 export const setupRoutes = new Hono<{ Bindings: Env }>();
 
@@ -152,5 +153,6 @@ setupRoutes.post("/load-rules", requireCapability("loadComplianceRules"), zValid
     ipAddress: c.req.header("cf-connecting-ip") || "unknown",
     timestamp: new Date().toISOString(),
   });
+  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "setup.rules_loaded", aggregateType: "company", aggregateId: user.companyId, idempotencyKey: `company:${user.companyId}:setup.rules_loaded:${(state || "TX").toUpperCase()}:${status.stateRulesCount}`, payload: { state, stateRulesCount: status.stateRulesCount, requiredDocumentsCount: status.requiredDocumentsCount, actorUserId: user.userId } });
   return c.json(status);
 });

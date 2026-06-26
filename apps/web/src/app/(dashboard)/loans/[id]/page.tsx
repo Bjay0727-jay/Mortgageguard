@@ -6,12 +6,30 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useCapabilities } from "@/lib/capabilities";
 import {
+  WORKSPACE_TABS,
+  parseTab,
+  filterChecklist,
+  filterTasks,
+  isTaskOverdue,
+  checklistRowState,
+  deriveTxLogFields,
+  txLogMissingFields,
+  validateNote,
+  timelineCategory,
+  nextActionTab,
+  NOTE_TYPE_VARIANT,
+  type WorkspaceTab,
+  type ChecklistFilter,
+  type TaskFilter,
+} from "@/lib/loan-workspace";
+import {
   Badge,
   Button,
   Card,
   EmptyState,
   Modal,
   ScoreBadge,
+  Select,
   StatusBadge,
   Table,
   Tabs,
@@ -118,6 +136,15 @@ interface LoanTask {
   due_at: string | null;
 }
 
+interface LoanNote {
+  id: string;
+  note_type: string;
+  body: string;
+  visibility: string;
+  created_by_name: string | null;
+  created_at: string;
+}
+
 const INTEGRITY_META: Record<LoanIntegrity["status"], { label: string; tone: "green" | "amber" | "red"; bg: string; fg: string }> = {
   clean: { label: "Clean", tone: "green", bg: "var(--grn-pl)", fg: "var(--grn)" },
   needs_attention: { label: "Needs attention", tone: "amber", bg: "var(--amb-pl)", fg: "var(--amb)" },
@@ -156,10 +183,12 @@ export default function LoanDetailPage() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [integrity, setIntegrity] = useState<LoanIntegrity | null>(null);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
-  const initialTab = (["details", "checklist", "tasks", "timeline"] as const).find(
-    (t) => t === searchParams.get("tab"),
-  ) ?? "details";
-  const [tab, setTab] = useState<"details" | "checklist" | "tasks" | "timeline">(initialTab);
+  const [notes, setNotes] = useState<LoanNote[]>([]);
+  const [tab, setTab] = useState<WorkspaceTab>(parseTab(searchParams.get("tab")));
+  const [checklistFilter, setChecklistFilter] = useState<ChecklistFilter>("all");
+  const [checklistSearch, setChecklistSearch] = useState("");
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>("all");
+  const [timelineFilter, setTimelineFilter] = useState("all");
   const [error, setError] = useState("");
   const [uploadItem, setUploadItem] = useState<ChecklistItem | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -202,6 +231,33 @@ export default function LoanDetailPage() {
   async function refreshTasks() {
     const data = await api.get<{ tasks: LoanTask[] }>(`/api/v1/loans/${id}/tasks`);
     setTasks(data.tasks);
+  }
+
+  async function refreshNotes() {
+    const data = await api.get<{ notes: LoanNote[] }>(`/api/v1/loans/${id}/notes`);
+    setNotes(data.notes);
+  }
+
+  async function createNote(body: string, noteType: string) {
+    const err = validateNote(body);
+    if (err) { toast({ variant: "error", title: "Cannot add note", description: err }); return false; }
+    try {
+      await api.post(`/api/v1/loans/${id}/notes`, { body, noteType });
+      await Promise.all([refreshNotes(), refreshTimeline()]);
+      return true;
+    } catch (e: any) {
+      toast({ variant: "error", title: "Could not add note", description: e.message });
+      return false;
+    }
+  }
+
+  async function deleteNote(noteId: string) {
+    try {
+      await api.delete(`/api/v1/loans/${id}/notes/${noteId}`);
+      await Promise.all([refreshNotes(), refreshTimeline()]);
+    } catch (e: any) {
+      toast({ variant: "error", title: "Could not delete note", description: e.message });
+    }
   }
 
   async function completeTask(taskId: string) {
@@ -266,6 +322,7 @@ export default function LoanDetailPage() {
     refreshTimeline().catch(() => {});
     refreshIntegrity().catch(() => {});
     refreshTasks().catch(() => {});
+    refreshNotes().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -360,12 +417,17 @@ export default function LoanDetailPage() {
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(n));
 
   const openTasks = tasks.filter((t) => !["complete", "canceled"].includes(t.status)).length;
-  const tabs = [
-    { id: "details", label: "Loan Details" },
-    { id: "checklist", label: `Checklist (${checklist.filter((c) => c.uploaded).length}/${checklist.length})` },
-    { id: "tasks", label: `Tasks${openTasks ? ` (${openTasks})` : ""}` },
-    { id: "timeline", label: "Timeline" },
-  ];
+  const overdueTasks = tasks.filter((t) => isTaskOverdue(t)).length;
+  const missingDocs = checklist.filter((c) => checklistRowState(c as any) === "missing").length;
+  const txMissing = txLogMissingFields(loan as any);
+  const tabCounts: Record<string, string> = {
+    checklist: `${checklist.filter((c) => checklistRowState(c as any) === "uploaded").length}/${checklist.length}`,
+    documents: String(checklist.filter((c) => c.uploaded).length),
+    tasks: openTasks ? String(openTasks) : "",
+    "transaction-log": txMissing.length ? String(txMissing.length) : "",
+    notes: notes.length ? String(notes.length) : "",
+  };
+  const tabs = WORKSPACE_TABS.map((t) => ({ id: t.id, label: tabCounts[t.id] ? `${t.label} (${tabCounts[t.id]})` : t.label }));
 
   const checklistColumns: Column<ChecklistItem>[] = [
     {
@@ -480,73 +542,116 @@ export default function LoanDetailPage() {
 
       <Tabs tabs={tabs} value={tab} onChange={(t) => setTab(t as typeof tab)} aria-label="Loan sections" />
 
-      {tab === "details" && (
-        <Card className="grid gap-4 sm:grid-cols-3">
-          {([
-            ["Purpose", loan.loan_purpose],
-            ["Product", loan.loan_product],
-            ["Type", loan.loan_type],
-            ["Rate", loan.interest_rate ? `${loan.interest_rate}%` : "—"],
-            ["Term", loan.loan_term ? `${loan.loan_term} mo` : "—"],
-            ["Lien", loan.lien_position],
-            ["Occupancy", loan.occupancy_type],
-            ["Application", loan.application_date],
-            ["Closing", loan.closing_date || "—"],
-            ["Originator", loan.originator_name || "—"],
-            ["Docs", `${loan.docs_complete}/${loan.docs_required}`],
-            ["Score", `${loan.compliance_score}%`],
-          ] as [string, string][]).map(([label, value]) => (
-            <div key={label}>
-              <p className="text-xs text-[var(--gray-500)]">{label}</p>
-              <p className="text-sm font-medium capitalize text-[var(--gray-900)]">{value}</p>
-            </div>
-          ))}
-        </Card>
+      {tab === "overview" && (
+        <div className="space-y-4">
+          {/* Command-center cards */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <OverviewCard label="Compliance Score" value={`${loan.compliance_score}%`} tone={loan.compliance_score >= 80 ? "good" : loan.compliance_score >= 50 ? "warn" : "danger"} />
+            <OverviewCard label="Integrity" value={integrity ? INTEGRITY_META[integrity.status].label : "—"} tone={integrity?.status === "clean" ? "good" : integrity?.status === "needs_attention" ? "warn" : "danger"} />
+            <OverviewCard label="Missing Documents" value={String(missingDocs)} tone={missingDocs ? "danger" : "good"} onClick={() => setTab("checklist")} />
+            <OverviewCard label="Open Tasks" value={String(openTasks)} tone={openTasks ? "warn" : "good"} onClick={() => setTab("tasks")} />
+            <OverviewCard label="Overdue Tasks" value={String(overdueTasks)} tone={overdueTasks ? "danger" : "good"} onClick={() => setTab("tasks")} />
+            <OverviewCard label="Transaction Log" value={txMissing.length ? `${txMissing.length} missing` : "Complete"} tone={txMissing.length ? "warn" : "good"} onClick={() => setTab("transaction-log")} />
+            <OverviewCard label="Stage Gate" value={formatStage(loan.status)} tone="neutral" onClick={() => setTab("stage-gate")} />
+            <OverviewCard label="Closing Date" value={loan.closing_date || "—"} tone="neutral" />
+          </div>
+
+          {/* Next actions, blockers, warnings */}
+          {integrity && (integrity.nextActions.length > 0 || integrity.blockers.length > 0 || integrity.warnings.length > 0) && (
+            <Card className="space-y-3">
+              {integrity.nextActions.length > 0 && (
+                <div>
+                  <p className="text-sm font-semibold text-[var(--gray-800)]">Next actions</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {integrity.nextActions.map((a) => (
+                      <button key={a.label} onClick={() => setTab(nextActionTab(a))} className="rounded-md bg-[var(--royal-pl)] px-2.5 py-1 text-xs font-semibold text-[var(--royal)] hover:opacity-90">{a.label} →</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {integrity.blockers.length > 0 && (
+                <div>
+                  <p className="text-sm font-semibold text-[var(--red)]">Blockers</p>
+                  <ul className="mt-1 list-disc pl-5 text-sm text-[var(--gray-700)]">{integrity.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
+                </div>
+              )}
+              {integrity.warnings.length > 0 && (
+                <div>
+                  <p className="text-sm font-semibold text-[var(--amb)]">Warnings</p>
+                  <ul className="mt-1 list-disc pl-5 text-sm text-[var(--gray-700)]">{integrity.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Loan details + owners */}
+          <Card className="grid gap-4 sm:grid-cols-3">
+            {([
+              ["Purpose", loan.loan_purpose],
+              ["Product", loan.loan_product],
+              ["Type", loan.loan_type],
+              ["Rate", loan.interest_rate ? `${loan.interest_rate}%` : "—"],
+              ["Term", loan.loan_term ? `${loan.loan_term} mo` : "—"],
+              ["Lien", loan.lien_position],
+              ["Occupancy", loan.occupancy_type],
+              ["Property State", loan.property_state],
+              ["Application", loan.application_date],
+              ["Closing", loan.closing_date || "—"],
+              ["Originator", loan.originator_name || "—"],
+              ["Docs", `${loan.docs_complete}/${loan.docs_required}`],
+            ] as [string, string][]).map(([label, value]) => (
+              <div key={label}>
+                <p className="text-xs text-[var(--gray-500)]">{label}</p>
+                <p className="text-sm font-medium capitalize text-[var(--gray-900)]">{value}</p>
+              </div>
+            ))}
+          </Card>
+        </div>
       )}
 
       {tab === "checklist" && (
-        <Card flush className="overflow-hidden">
-          <Table
-            columns={checklistColumns}
-            data={checklist}
-            rowKey={(i) => i.documentType}
-            caption="Compliance document checklist"
-            emptyState={
-              <EmptyState
-                icon={<span className="text-lg">⏳</span>}
-                title="Checklist is being generated"
-                description="Refresh shortly to see required compliance documents."
-              />
-            }
-          />
-        </Card>
+        <div className="space-y-3">
+          <Card className="flex flex-wrap items-center gap-2">
+            <input value={checklistSearch} onChange={(e) => setChecklistSearch(e.target.value)} placeholder="Search documents…" className="rounded-md border border-[var(--gray-300)] px-3 py-1.5 text-sm" />
+            {(["all", "missing", "required", "uploaded", "invalid", "not_applicable", "current_stage", "federal", "state"] as ChecklistFilter[]).map((f) => (
+              <button key={f} onClick={() => setChecklistFilter(f)} className={`rounded-full px-2.5 py-1 text-xs font-medium ${checklistFilter === f ? "bg-[var(--royal)] text-white" : "bg-[var(--gray-100)] text-[var(--gray-700)]"}`}>{f.replace(/_/g, " ")}</button>
+            ))}
+          </Card>
+          <Card flush className="overflow-hidden">
+            <Table
+              columns={checklistColumns}
+              data={filterChecklist(checklist as any, checklistFilter, checklistSearch, loan.status) as ChecklistItem[]}
+              rowKey={(i) => i.documentType}
+              caption="Compliance document checklist"
+              emptyState={<EmptyState icon={<span className="text-lg">⏳</span>} title="No matching checklist items" description="Adjust the filters or refresh to see required compliance documents." />}
+            />
+          </Card>
+        </div>
       )}
 
-      {tab === "tasks" && (
+      {tab === "documents" && (
         <Card flush className="overflow-hidden">
-          {tasks.length === 0 ? (
-            <EmptyState icon={<span className="text-lg">✅</span>} title="No tasks" description="Auto-generated and manual tasks for this loan appear here." />
+          {checklist.filter((c) => c.documentId).length === 0 ? (
+            <EmptyState icon={<span className="text-lg">📂</span>} title="No documents uploaded" description="Uploaded loan documents appear here with version and audit history." />
           ) : (
             <ul className="divide-y divide-[var(--gray-100)]">
-              {tasks.map((t) => {
-                const done = ["complete", "canceled"].includes(t.status);
-                const overdue = !done && t.due_at && new Date(t.due_at).getTime() < Date.now();
+              {checklist.filter((c) => c.documentId).map((c) => {
+                const stateOf = checklistRowState(c as any);
                 return (
-                  <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                  <li key={c.documentId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
                     <div className="min-w-0">
-                      <p className={`text-sm font-medium ${done ? "text-[var(--gray-400)] line-through" : "text-[var(--gray-900)]"}`}>{t.title}</p>
+                      <p className="truncate text-sm font-medium text-[var(--gray-900)]">{c.fileName || c.displayName}</p>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--gray-500)]">
-                        <Badge variant={t.priority === "critical" || t.priority === "high" ? "red" : "gray"}>{t.priority}</Badge>
-                        <span className="capitalize">{t.task_type.replace(/_/g, " ")}</span>
-                        {t.auto_key && <Badge variant="gray">auto</Badge>}
-                        {t.assigned_to_name && <span>· {t.assigned_to_name}</span>}
-                        {t.due_at && <span className={overdue ? "font-semibold text-[var(--red)]" : ""}>· due {String(t.due_at).slice(0, 10)}</span>}
+                        <span className="capitalize">{c.documentType.replace(/_/g, " ")}</span>
+                        <Badge variant={stateOf === "uploaded" ? "green" : stateOf === "invalid" ? "red" : "gray"}>{c.uploadStatus || "—"}</Badge>
+                        {c.uploadedBy && <span>· {c.uploadedBy}</span>}
+                        {c.uploadedAt && <span>· {String(c.uploadedAt).slice(0, 10)}</span>}
                       </div>
                     </div>
-                    {!done && can("manageLoanTasks") && (
-                      <Button size="sm" variant="secondary" onClick={() => completeTask(t.id)}>Complete</Button>
-                    )}
-                    {done && <Badge variant="green">{t.status}</Badge>}
+                    <div className="flex gap-1.5">
+                      <Button size="sm" variant="secondary" onClick={() => downloadDocument(c)} loading={downloadingDocId === c.documentId}>Download</Button>
+                      {canUploadDocuments && <Button size="sm" variant="secondary" onClick={() => openUpload(c)}>Replace</Button>}
+                    </div>
                   </li>
                 );
               })}
@@ -555,9 +660,118 @@ export default function LoanDetailPage() {
         </Card>
       )}
 
+      {tab === "tasks" && (
+        <div className="space-y-3">
+          <Card className="flex flex-wrap items-center gap-2">
+            {(["all", "open", "overdue", "auto", "manual", "complete"] as TaskFilter[]).map((f) => (
+              <button key={f} onClick={() => setTaskFilter(f)} className={`rounded-full px-2.5 py-1 text-xs font-medium ${taskFilter === f ? "bg-[var(--royal)] text-white" : "bg-[var(--gray-100)] text-[var(--gray-700)]"}`}>{f}</button>
+            ))}
+          </Card>
+          <Card flush className="overflow-hidden">
+            {filterTasks(tasks as any, taskFilter).length === 0 ? (
+              <EmptyState icon={<span className="text-lg">✅</span>} title="No matching tasks" description="Auto-generated and manual tasks for this loan appear here." />
+            ) : (
+              <ul className="divide-y divide-[var(--gray-100)]">
+                {(filterTasks(tasks as any, taskFilter) as LoanTask[]).map((t) => {
+                  const done = ["complete", "canceled"].includes(t.status);
+                  const overdue = isTaskOverdue(t as any);
+                  return (
+                    <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className={`text-sm font-medium ${done ? "text-[var(--gray-400)] line-through" : "text-[var(--gray-900)]"}`}>{t.title}</p>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--gray-500)]">
+                          <Badge variant={t.priority === "critical" || t.priority === "high" ? "red" : "gray"}>{t.priority}</Badge>
+                          <span className="capitalize">{t.task_type.replace(/_/g, " ")}</span>
+                          <Badge variant={t.auto_key ? "gray" : "blue"}>{t.auto_key ? "auto" : "manual"}</Badge>
+                          {t.assigned_to_name && <span>· {t.assigned_to_name}</span>}
+                          {t.due_at && <span className={overdue ? "font-semibold text-[var(--red)]" : ""}>· due {String(t.due_at).slice(0, 10)}</span>}
+                        </div>
+                      </div>
+                      {!done && can("manageLoanTasks") && (
+                        <Button size="sm" variant="secondary" onClick={() => completeTask(t.id)}>Complete</Button>
+                      )}
+                      {done && <Badge variant="green">{t.status}</Badge>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {tab === "transaction-log" && (
+        <div className="space-y-3">
+          {txMissing.length > 0 && (
+            <div role="status" className="rounded-md bg-[var(--amb-pl)] p-3 text-sm text-[var(--amb)]">
+              {txMissing.length} required transaction-log field(s) missing — these will appear as warnings on the Texas transaction-log export.
+            </div>
+          )}
+          <Card className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {deriveTxLogFields(loan as any).map((f) => (
+              <div key={f.key} className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs text-[var(--gray-500)]">{f.label}{f.conditional ? " (if applicable)" : ""}</p>
+                  <p className="text-sm font-medium text-[var(--gray-900)]">{f.value || "—"}</p>
+                </div>
+                {!f.present && !f.conditional && <Badge variant="amber">missing</Badge>}
+              </div>
+            ))}
+          </Card>
+          <div className="flex flex-wrap gap-2">
+            <a href={`/reports`} className="inline-flex items-center rounded-md border border-[var(--gray-300)] px-3 py-1.5 text-sm font-semibold text-[var(--royal)] hover:bg-[var(--gray-50)]">Export transaction log (Reports)</a>
+            {canUploadDocuments && <Button variant="secondary" onClick={() => setTab("overview")}>Edit loan fields</Button>}
+          </div>
+        </div>
+      )}
+
+      {tab === "stage-gate" && (
+        <Card className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <p className="text-xs text-[var(--gray-500)]">Current stage</p>
+              <StatusBadge status={loan.status} />
+            </div>
+            {nextStage && (
+              <div>
+                <p className="text-xs text-[var(--gray-500)]">Next allowed stage</p>
+                <StatusBadge status={nextStage} />
+              </div>
+            )}
+            {nextStage && can("advanceLoanStage") && (
+              <Button className="ml-auto" onClick={() => openGateReview(nextStage)} loading={gateLoading}>Preview gate</Button>
+            )}
+          </div>
+          {isTerminalStage && <p className="text-sm text-[var(--gray-500)]">This loan is at a terminal stage.</p>}
+          {integrity && (integrity.blockers.length > 0 || integrity.warnings.length > 0) ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="text-sm font-semibold text-[var(--red)]">Blockers</p>
+                <ul className="mt-1 list-disc pl-5 text-sm text-[var(--gray-700)]">{integrity.blockers.length ? integrity.blockers.map((b) => <li key={b}>{b}</li>) : <li className="list-none text-[var(--gray-400)]">None</li>}</ul>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[var(--amb)]">Warnings</p>
+                <ul className="mt-1 list-disc pl-5 text-sm text-[var(--gray-700)]">{integrity.warnings.length ? integrity.warnings.map((w) => <li key={w}>{w}</li>) : <li className="list-none text-[var(--gray-400)]">None</li>}</ul>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--gray-500)]">No outstanding blockers or warnings. Preview the gate to confirm readiness.</p>
+          )}
+        </Card>
+      )}
+
+      {tab === "notes" && (
+        <NotesTab notes={notes} canManage={can("manageLoanNotes")} onCreate={createNote} onDelete={deleteNote} />
+      )}
+
       {tab === "timeline" && (
         <div className="space-y-3">
-          {timeline.map((event) => {
+          <div className="flex flex-wrap gap-2">
+            {["all", "documents", "tasks", "stage", "notes", "evidence-packets", "audit"].map((f) => (
+              <button key={f} onClick={() => setTimelineFilter(f)} className={`rounded-full px-2.5 py-1 text-xs font-medium ${timelineFilter === f ? "bg-[var(--royal)] text-white" : "bg-[var(--gray-100)] text-[var(--gray-700)]"}`}>{f}</button>
+            ))}
+          </div>
+          {timeline.filter((e) => timelineFilter === "all" || timelineCategory(e.event_type) === timelineFilter).map((event) => {
             let metadata: any = null;
             try {
               metadata = (event as any).metadata ? JSON.parse((event as any).metadata) : null;
@@ -742,13 +956,90 @@ export default function LoanDetailPage() {
       {/* "More" bottom sheet */}
       <Modal open={moreOpen} onClose={() => setMoreOpen(false)} size="sm" title="More actions">
         <div className="flex flex-col gap-2">
-          <Button variant="secondary" fullWidth onClick={() => { setTab("details"); setMoreOpen(false); }}>View loan details</Button>
+          <Button variant="secondary" fullWidth onClick={() => { setTab("overview"); setMoreOpen(false); }}>Overview</Button>
           <Button variant="secondary" fullWidth onClick={() => { setTab("checklist"); setMoreOpen(false); }}>Document checklist</Button>
           <Button variant="secondary" fullWidth onClick={() => { setTab("tasks"); setMoreOpen(false); }}>Tasks</Button>
+          <Button variant="secondary" fullWidth onClick={() => { setTab("transaction-log"); setMoreOpen(false); }}>Transaction log</Button>
+          <Button variant="secondary" fullWidth onClick={() => { setTab("notes"); setMoreOpen(false); }}>Notes</Button>
           <Button variant="secondary" fullWidth onClick={() => { setTab("timeline"); setMoreOpen(false); }}>Timeline</Button>
           <Link href="/loans" className="mt-1 text-center text-sm font-medium text-[var(--royal)] hover:underline" onClick={() => setMoreOpen(false)}>← Back to all loans</Link>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+const CARD_TONE: Record<string, string> = {
+  good: "var(--grn)",
+  warn: "var(--amb)",
+  danger: "var(--red)",
+  neutral: "var(--gray-800)",
+};
+
+function OverviewCard({ label, value, tone, onClick }: { label: string; value: string; tone: "good" | "warn" | "danger" | "neutral"; onClick?: () => void }) {
+  const inner = (
+    <>
+      <p className="text-xs font-medium uppercase tracking-wide text-[var(--gray-500)]">{label}</p>
+      <p className="mt-1 text-lg font-bold capitalize" style={{ color: CARD_TONE[tone] }}>{value}</p>
+    </>
+  );
+  const cls = "rounded-xl border border-[var(--gray-200)] bg-white p-3 text-left";
+  return onClick ? (
+    <button onClick={onClick} className={`${cls} transition hover:border-[var(--royal)] hover:bg-[var(--gray-50)]`}>{inner}</button>
+  ) : (
+    <div className={cls}>{inner}</div>
+  );
+}
+
+const NOTE_TYPES = ["general", "borrower_follow_up", "lender_follow_up", "processor_note", "compliance_note", "condition_note"];
+
+function NotesTab({ notes, canManage, onCreate, onDelete }: { notes: LoanNote[]; canManage: boolean; onCreate: (body: string, noteType: string) => Promise<boolean>; onDelete: (id: string) => void }) {
+  const [body, setBody] = useState("");
+  const [noteType, setNoteType] = useState("general");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const ok = await onCreate(body, noteType);
+    setSaving(false);
+    if (ok) setBody("");
+  }
+
+  return (
+    <div className="space-y-4">
+      {canManage && (
+        <Card>
+          <form onSubmit={submit} className="space-y-3">
+            <Textarea label="Add a note" value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="Processor note, borrower/lender follow-up, condition…" />
+            <div className="flex flex-wrap items-end gap-3">
+              <Select label="Type" value={noteType} onChange={(e) => setNoteType(e.target.value)} className="w-auto">
+                {NOTE_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
+              </Select>
+              <Button type="submit" loading={saving} disabled={!body.trim()}>Add note</Button>
+            </div>
+          </form>
+        </Card>
+      )}
+      {notes.length === 0 ? (
+        <Card><p className="text-sm text-[var(--gray-500)]">No notes yet.</p></Card>
+      ) : (
+        <ul className="space-y-2">
+          {notes.map((n) => (
+            <li key={n.id} className="rounded-lg border border-[var(--gray-200)] bg-white p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant={NOTE_TYPE_VARIANT[n.note_type] || "gray"}>{n.note_type.replace(/_/g, " ")}</Badge>
+                  {n.visibility === "compliance" && <Badge variant="royal">compliance</Badge>}
+                </div>
+                {canManage && <button onClick={() => onDelete(n.id)} className="text-xs font-semibold text-[var(--red)] hover:underline">Delete</button>}
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--gray-800)]">{n.body}</p>
+              <p className="mt-1 text-xs text-[var(--gray-400)]">{n.created_by_name || "—"} · {new Date(n.created_at).toLocaleString()}</p>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

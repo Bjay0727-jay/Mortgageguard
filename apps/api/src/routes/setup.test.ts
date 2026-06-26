@@ -18,16 +18,26 @@ interface State {
   activeUsers: number;
   invites: any[];
   los: any[];
+  outbox: any[];
 }
 const state: State = {
   user: { name: "Administrator", email: "admin@demo.com", must_change_password: true },
   company: { id: "company-1", name: "Demo", nmls_id: null, entity_type: null, primary_contact: null, primary_email: null, address: null, license_states: ["TX"], allows_remote_work: null },
-  rules: [], reqdocs: [], deadlines: [], loanCount: 0, programs: [], activeUsers: 1, invites: [], los: [],
+  rules: [], reqdocs: [], deadlines: [], loanCount: 0, programs: [], activeUsers: 1, invites: [], los: [], outbox: [],
 };
 
 vi.mock("postgres", () => ({
-  default: vi.fn(() => async (strings: TemplateStringsArray, ...values: any[]) => {
+  default: vi.fn(() => {
+   const fn = async (strings: TemplateStringsArray, ...values: any[]) => {
     const q = strings.join("?").replace(/\s+/g, " ").trim();
+
+    // ── outbox (Prompt 18 integration) ──
+    if (q.startsWith("SELECT * FROM event_outbox WHERE idempotency_key")) return state.outbox.filter((o: any) => o.idempotency_key === values[0]);
+    if (q.startsWith("INSERT INTO event_outbox")) {
+      const row = { id: `o${state.outbox.length + 1}`, company_id: values[0], event_type: values[1], idempotency_key: values[5] };
+      state.outbox.push(row);
+      return [row];
+    }
 
     // ── load-rules inserts ──
     if (q.includes("INSERT INTO state_rules")) {
@@ -80,6 +90,9 @@ vi.mock("postgres", () => ({
     if (q.includes("FROM user_invitations WHERE company_id")) return state.invites;
     if (q.includes("FROM integrations WHERE company_id = ? AND system_type")) return state.los;
     return [];
+   };
+   (fn as any).json = (x: any) => x;
+   return fn;
   }),
 }));
 
@@ -100,7 +113,7 @@ function app() {
 beforeEach(() => {
   state.user = { name: "Administrator", email: "admin@demo.com", must_change_password: true };
   state.company = { id: "company-1", name: "Demo", nmls_id: null, entity_type: null, primary_contact: null, primary_email: null, address: null, license_states: ["TX"], allows_remote_work: null };
-  state.rules = []; state.reqdocs = []; state.deadlines = []; state.loanCount = 0; state.programs = []; state.activeUsers = 1; state.invites = []; state.los = [];
+  state.rules = []; state.reqdocs = []; state.deadlines = []; state.loanCount = 0; state.programs = []; state.activeUsers = 1; state.invites = []; state.los = []; state.outbox = [];
 });
 
 describe("GET /setup/status", () => {
@@ -146,6 +159,8 @@ describe("POST /setup/load-rules", () => {
     expect(body.stateRulesCount).toBe(TEXAS_STATE_RULES.length);
     expect(body.requiredDocumentsCount).toBe(TEXAS_REQUIRED_DOCUMENTS.length);
     expect((env.AUDIT_QUEUE as any).messages.some((m: any) => m.type === "setup.rules_loaded")).toBe(true);
+    // Prompt 18: rules load writes a durable outbox event.
+    expect(state.outbox.some((o: any) => o.event_type === "setup.rules_loaded")).toBe(true);
 
     // Re-run — no duplicates.
     await app().request("/api/v1/setup/load-rules", { method: "POST", headers: { ...(await auth("company_admin")), "Content-Type": "application/json" }, body: JSON.stringify({ state: "TX" }) }, createMockEnv());

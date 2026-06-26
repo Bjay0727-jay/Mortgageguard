@@ -244,6 +244,22 @@ CREATE TABLE IF NOT EXISTS loan_timeline (
 
 CREATE INDEX IF NOT EXISTS idx_timeline_loan ON loan_timeline(loan_id);
 
+-- ─── Loan Notes / Correspondence (Prompt 21C) ───
+CREATE TABLE IF NOT EXISTS loan_notes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  loan_id UUID NOT NULL REFERENCES loans(id),
+  note_type TEXT NOT NULL DEFAULT 'general',
+  body TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'internal',
+  is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_loan_notes_loan ON loan_notes(loan_id);
+CREATE INDEX IF NOT EXISTS idx_loan_notes_company ON loan_notes(company_id);
+
 -- ─── Compliance Programs ───
 CREATE TABLE IF NOT EXISTS compliance_programs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -514,6 +530,32 @@ CREATE TABLE IF NOT EXISTS evidence_packets (
 );
 CREATE INDEX IF NOT EXISTS idx_evidence_packets_company ON evidence_packets(company_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_packets_type ON evidence_packets(company_id, packet_type);
+
+-- ─── Event Outbox (transactional outbox / audit reliability; Prompt 18) ───
+CREATE TABLE IF NOT EXISTS event_outbox (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID,
+  event_type TEXT NOT NULL,
+  aggregate_type TEXT NOT NULL,
+  aggregate_id UUID,
+  payload JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  next_attempt_at TIMESTAMPTZ DEFAULT NOW(),
+  last_error TEXT,
+  idempotency_key TEXT,
+  queue_message_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  processing_started_at TIMESTAMPTZ,
+  processed_at TIMESTAMPTZ,
+  dead_lettered_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_event_outbox_status_next_attempt ON event_outbox(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_event_outbox_company_created ON event_outbox(company_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_outbox_event_type_created ON event_outbox(event_type, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_outbox_idempotency_key ON event_outbox(idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 -- ─── Integrations ───
 CREATE TABLE IF NOT EXISTS integrations (
