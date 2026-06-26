@@ -203,6 +203,7 @@ export interface TopActionsInput {
   upcomingDeadlines: unknown[];
   passingLoans: number;
   loanOps?: { overdueTasks?: number; upcomingClosings?: number; txLogIssues?: number };
+  reportOps?: { overdueDeadlines?: number; dueSoonDeadlines?: number; missingReceipts?: number; transactionLogGaps?: number };
 }
 
 export interface TopAction {
@@ -311,6 +312,42 @@ export function deriveTopActions(data: TopActionsInput): TopAction[] {
       href: "/loans",
       cta: "Review Closings",
       count: data.loanOps?.upcomingClosings ?? 0,
+      priority: "Medium",
+    },
+    {
+      id: "file-overdue-reports",
+      title: "File overdue reports",
+      description: "Reporting deadlines that are past due and not yet filed.",
+      href: "/reports",
+      cta: "File Reports",
+      count: data.reportOps?.overdueDeadlines ?? 0,
+      priority: "High",
+    },
+    {
+      id: "file-upcoming-reports",
+      title: "File upcoming reports",
+      description: "Reporting deadlines due within 30 days — record the filing.",
+      href: "/reports",
+      cta: "Review Deadlines",
+      count: data.reportOps?.dueSoonDeadlines ?? 0,
+      priority: "Medium",
+    },
+    {
+      id: "upload-receipts",
+      title: "Upload filing receipts",
+      description: "Filed reports that are missing a confirmation receipt.",
+      href: "/reports",
+      cta: "Upload Receipt",
+      count: data.reportOps?.missingReceipts ?? 0,
+      priority: "Medium",
+    },
+    {
+      id: "report-tx-log",
+      title: "Fix transaction-log gaps",
+      description: "Loans with missing or overdue transaction-log fields before export.",
+      href: "/reports",
+      cta: "Open Reports",
+      count: data.reportOps?.transactionLogGaps ?? 0,
       priority: "Medium",
     },
   ];

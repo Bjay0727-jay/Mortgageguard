@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { csvCell, toCsv, objectsToCsv } from "./csv";
+import { csvCell, toCsv, objectsToCsv, UTF8_BOM } from "./csv";
 
 describe("csvCell", () => {
   it("passes through plain values", () => {
@@ -46,5 +46,31 @@ describe("toCsv / objectsToCsv", () => {
       { header: "Count", value: (r) => r.b },
     ], rows);
     expect(out).toBe('Borrower,Count\r\n"Smith, John",1\r\nDoe,2');
+  });
+});
+
+describe("formula-injection safety", () => {
+  it("neutralizes leading formula triggers when formulaSafe is set", () => {
+    expect(csvCell("=1+1", true)).toBe("'=1+1");
+    expect(csvCell("+SUM(A1)", true)).toBe("'+SUM(A1)");
+    expect(csvCell("-2", true)).toBe("'-2");
+    expect(csvCell("@cmd", true)).toBe("'@cmd");
+  });
+
+  it("a comma-bearing formula is both neutralized and quoted", () => {
+    // Leading '=' is escaped with a quote, then the comma forces RFC-4180 quoting.
+    expect(csvCell("=HYPERLINK(1,2)", true)).toBe('"\'=HYPERLINK(1,2)"');
+  });
+
+  it("leaves safe values untouched and is off by default", () => {
+    expect(csvCell("=1+1")).toBe("=1+1");
+    expect(csvCell("Austin", true)).toBe("Austin");
+    expect(csvCell("6.5", true)).toBe("6.5");
+  });
+
+  it("toCsv applies formulaSafe to headers and cells and can prepend a BOM", () => {
+    const out = toCsv(["Name"], [["=evil"]], { formulaSafe: true, bom: true });
+    expect(out.startsWith(UTF8_BOM)).toBe(true);
+    expect(out).toContain("'=evil");
   });
 });

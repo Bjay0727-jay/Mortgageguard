@@ -83,10 +83,16 @@ Each required program carries **evidence requirements** (e.g. AML: policy, senio
 **Program status** (derived integrity): `missing` → `incomplete` → `current`, plus `review_due`, `overdue`, `source_review_due`, `not_applicable`, `archived`. A program is **current** only when its document is valid (status in `uploaded|current|approved`; `superseded|rejected|deleted|expired|failed|quarantined` never count), an owner + review dates are set, all required evidence is satisfied or N/A, a regulatory source is linked, and that source is not past its verification date. The dashboard “Upload required compliance program documents” step is complete only when integrity passes, and dashboard **Top actions** surface missing program docs/evidence, overdue reviews, **source verification due**, and an unknown remote-work setting. This document + evidence + verified-source packet also feeds the examiner evidence packet.
 
 ### Reports (protected)
-- `GET /api/v1/reports/transaction-log?format=json|csv` — TX transaction log (all 17 fields)
-- `GET /api/v1/reports/rmla/:quarter` — RMLA data for quarter
-- `GET /api/v1/reports/deadlines` — Reporting deadlines
+- `POST /api/v1/reports/setup-deadlines` — Idempotently provision RMLA/SSSF/Financial Condition deadlines (cap `setupReportingDeadlines`)
+- `GET /api/v1/reports/deadlines` — Reporting deadlines + derived status summary
+- `GET /api/v1/reports/transaction-log?jurisdiction=TX&from=&to=&format=json|csv` — TX transaction log (23 fields, cap `viewReports`; CSV requires `exportReports`)
+- `POST /api/v1/reports/deadlines/:id/file` — Record a filing event (JSON; cap `fileReports`)
+- `POST /api/v1/reports/deadlines/:id/receipt` — Upload a filing receipt (cap `uploadReportReceipts`)
+- `GET /api/v1/reports/deadlines/:id/evidence` — Download a filing receipt
 - `PUT /api/v1/reports/deadlines/:id` — Update deadline status
+- `GET /api/v1/reports/rmla/:quarter` — RMLA aggregate data for quarter
+
+See [Reports, filing evidence & transaction logs](#reports-filing-evidence--transaction-logs-prompt-13).
 
 ### Integrations (admin)
 - `GET /api/v1/integrations/available` — Supported LOS systems
@@ -187,6 +193,43 @@ Pipeline stages and the gate-readiness model are unchanged (`GET /:id/gate/:targ
 Rules are data-driven (`state_rules` + `required_documents`, effective-dated). Texas is implemented first; other states are added by seeding rows (no code change). MVP conditional rules live in a tested backend catalog/helper, never in UI components.
 
 > Phase note: this PR is the **backend foundation** (model, APIs, helpers, tasks, conditional rules, tests). The multi-step creation wizard + processing-workspace UI land in a follow-up.
+
+## Reports, filing evidence & transaction logs (Prompt 13)
+
+Turns operational loan/program data into compliance reports, filing evidence, and examiner-ready exports. Texas-first, but the deadline model is jurisdiction-parameterized for future multi-state reporting.
+
+### Reporting deadlines
+
+`POST /api/v1/reports/setup-deadlines` (`{ jurisdiction: "TX", year? }`) idempotently provisions a company's deadlines for a calendar year. `lib/reporting-deadlines.ts` is a pure, tested helper:
+
+- **RMLA / SSSF** — quarterly Mortgage Call Reports, due 45 days after each quarter end: **Q1 → May 15, Q2 → Aug 14, Q3 → Nov 14, Q4 → Feb 14** of the following year.
+- **Financial Condition** — cadence by company **entity type**: quarterly for `lender` / `servicer` / `broker_lender` (same schedule as RMLA), annual for `broker` (due Mar 31, within 90 days of calendar year end).
+- `deriveDeadlineStatus` / `deriveReportingSummary` derive live `upcoming | due_soon (≤30d) | due | overdue | filed | not_applicable` status without mutating stored rows.
+
+`GET /api/v1/reports/deadlines` returns `{ summary, deadlines }` (each row decorated with `derived_status`); supports `status`, `jurisdiction`, `quarter`, `from`/`to`, and `dueSoon` filters.
+
+### Texas transaction-log export
+
+`GET /api/v1/reports/transaction-log?jurisdiction=TX&from=&to=&format=json|csv` exports the 23 TX-SML transaction-log fields (loan #, applicant, application date, property address/city/state/ZIP, rate, purpose, **Texas 50(a)(6)/50(f)(2) cash-out classification**, product, type, term, lien, occupancy, status, closing date, originator name/NMLS, lender/NMLS, plus **completeness status** and **missing-field list** per loan via `deriveTransactionLogCompleteness`).
+
+- **JSON** returns `{ reportKey, jurisdiction, periodStart, periodEnd, rowCount, warningCount, rulesLoaded, rows, warnings }`.
+- **CSV** is RFC-4180 escaped, **formula-injection-safe** (cells starting with `= + - @` are prefixed with `'`), **UTF-8 BOM**-prefixed for Excel, and named `mortgageguard-tx-transaction-log-<from>-to-<to>.csv`. Each export is recorded in `report_exports`.
+
+### Filing evidence
+
+- `POST /api/v1/reports/deadlines/:id/file` (JSON `{ filedAt?, confirmationNumber?, notes? }`) records an immutable `report_filing_events` row and marks the deadline `filed` (audit `report.filed`).
+- `POST /api/v1/reports/deadlines/:id/receipt` uploads a receipt through the existing document hardening (magic-byte MIME sniff, size cap, sanitized key) into the company-scoped `EXPORTS` bucket and links it (audit `report.receipt_uploaded`).
+- `GET /api/v1/reports/deadlines/:id/evidence` downloads the receipt.
+
+### Dashboard & UI
+
+`GET /api/v1/compliance/dashboard` now also returns `reportOps { overdueDeadlines, dueSoonDeadlines, missingReceipts, transactionLogGaps }`, surfaced as top actions (file overdue/upcoming reports, upload receipts, fix tx-log gaps). The **Reports** page adds summary cards, a "Set up reporting deadlines" action, a jurisdiction/period transaction-log export panel with warnings preview, and filing + receipt-upload modals.
+
+### Schema & capabilities
+
+New tables (`scripts/db-setup.sql`, idempotent): `reporting_obligations`, `report_exports`, `report_filing_events`; `reporting_deadlines` gains `obligation_key`, `jurisdiction`, `period_start`, `period_end`, `receipt_document_id`. Capabilities: `setupReportingDeadlines`, `fileReports`, `uploadReportReceipts`, `viewReportAudit` (admin/qualifying-individual/compliance-officer get all; originators/processors/read-only get `viewReports`). Audit events: `reports.deadlines_setup`, `report.transaction_log_exported`, `report.filed`, `report.receipt_uploaded`.
+
+> Not an official NMLS submission: trackers record filing **evidence** (confirmation numbers + receipts), not NMLS-format submissions.
 
 ## Initial admin and invite-only onboarding
 

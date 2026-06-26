@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────────────────
 import {
   pgTable, uuid, varchar, text, boolean, decimal, integer,
-  timestamp, date, pgEnum, index, uniqueIndex
+  timestamp, date, pgEnum, index, uniqueIndex, jsonb
 } from "drizzle-orm/pg-core";
 
 // ─── ENUMS ───
@@ -458,11 +458,67 @@ export const reportingDeadlines = pgTable("reporting_deadlines", {
   filedBy: uuid("filed_by").references(() => users.id),
   confirmationNumber: varchar("confirmation_number", { length: 100 }),
   evidenceFilePath: text("evidence_file_path"),
+  // Obligation-based model (Prompt 13) — supersedes report_type/state_code/quarter.
+  obligationKey: text("obligation_key"),
+  jurisdiction: varchar("jurisdiction", { length: 3 }),
+  periodStart: date("period_start"),
+  periodEnd: date("period_end"),
+  receiptDocumentId: uuid("receipt_document_id"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("deadlines_company_idx").on(t.companyId),
   index("deadlines_due_idx").on(t.dueDate),
+]);
+
+// ─── REPORTING OBLIGATIONS (catalog of what must be filed, per jurisdiction) ───
+export const reportingObligations = pgTable("reporting_obligations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  obligationKey: text("obligation_key").notNull(),
+  jurisdiction: text("jurisdiction").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  frequency: text("frequency").notNull(),
+  appliesToEntityTypes: text("applies_to_entity_types").array(),
+  dueRule: text("due_rule").notNull(),
+  sourceKey: text("source_key"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [uniqueIndex("obligations_key_jurisdiction_idx").on(t.obligationKey, t.jurisdiction)]);
+
+// ─── REPORT EXPORTS (generated transaction-log/report file audit trail) ───
+export const reportExports = pgTable("report_exports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  reportKey: text("report_key").notNull(),
+  jurisdiction: text("jurisdiction").notNull(),
+  format: text("format").notNull(),
+  periodStart: date("period_start"),
+  periodEnd: date("period_end"),
+  r2Key: text("r2_key"),
+  generatedBy: uuid("generated_by").references(() => users.id),
+  generatedAt: timestamp("generated_at").defaultNow(),
+  rowCount: integer("row_count").default(0),
+  warningCount: integer("warning_count").default(0),
+  hash: text("hash"),
+  metadata: jsonb("metadata"),
+}, (t) => [index("report_exports_company_idx").on(t.companyId)]);
+
+// ─── REPORT FILING EVENTS (immutable filing history against a deadline) ───
+export const reportFilingEvents = pgTable("report_filing_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  reportingDeadlineId: uuid("reporting_deadline_id").notNull().references(() => reportingDeadlines.id),
+  filedBy: uuid("filed_by").references(() => users.id),
+  filedAt: timestamp("filed_at").defaultNow().notNull(),
+  confirmationNumber: text("confirmation_number"),
+  receiptDocumentId: uuid("receipt_document_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("filing_events_deadline_idx").on(t.reportingDeadlineId),
+  index("filing_events_company_idx").on(t.companyId),
 ]);
 
 // ─── INTEGRATIONS ───
