@@ -1,5 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { hasProgramSetup, deriveTopActions } from "./dashboard-setup";
+import { hasProgramSetup, deriveTopActions, setupStepsToChecklist, type BackendSetupStep } from "./dashboard-setup";
+
+describe("setupStepsToChecklist", () => {
+  const steps: BackendSetupStep[] = [
+    { key: "change_default_admin_password", title: "Change default admin password", description: "Protect the seeded admin.", complete: false, required: true, status: "blocked", actionLabel: "Change Password", actionHref: "/change-password" },
+    { key: "load_texas_compliance_rules", title: "Load Texas compliance rules", description: "Rules power checklists.", complete: true, required: true, status: "complete", actionLabel: "Load Texas Rules", actionHref: "/setup?step=rules" },
+  ];
+
+  it("maps backend steps to dashboard checklist items with icons + CTA hrefs", () => {
+    const items = setupStepsToChecklist(steps);
+    expect(items[0]).toMatchObject({ id: "change_default_admin_password", title: "Change default admin password", complete: false, cta: "Change Password", href: "/change-password" });
+    expect(items[0].icon).toBeTruthy();
+    expect(items[1]).toMatchObject({ complete: true, href: "/setup?step=rules" });
+  });
+});
 
 describe("hasProgramSetup (integrity-based)", () => {
   it("is incomplete while any required program is missing/incomplete/overdue", () => {

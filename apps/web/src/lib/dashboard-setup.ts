@@ -115,6 +115,58 @@ export function buildSetupChecklist(data: DashboardSetupData): SetupChecklistIte
   ];
 }
 
+// ─── Backend setup status (GET /api/v1/setup/status) ───
+export interface BackendSetupWarning {
+  key: string;
+  title: string;
+  message: string;
+  severity: "critical" | "warning" | "info";
+  actionLabel: string;
+  actionHref: string;
+}
+export interface BackendSetupStep {
+  key: string;
+  title: string;
+  description: string;
+  complete: boolean;
+  required: boolean;
+  status: "complete" | "incomplete" | "warning" | "blocked" | "optional";
+  actionLabel: string;
+  actionHref: string;
+  details?: Record<string, unknown>;
+}
+export interface BackendSetupStatus {
+  companyId: string;
+  setupComplete: boolean;
+  coreSetupComplete: boolean;
+  progress: { completed: number; total: number; percent: number };
+  warnings: BackendSetupWarning[];
+  steps: BackendSetupStep[];
+}
+
+const STEP_ICONS: Record<string, string> = {
+  change_default_admin_password: "🔐",
+  confirm_company_profile: "🏢",
+  load_texas_compliance_rules: "📚",
+  create_first_loan: "🏠",
+  upload_required_compliance_program_documents: "✅",
+  invite_team_members: "👥",
+  connect_los_integration: "🔌",
+};
+
+// Map backend steps to the checklist item shape the dashboard panel renders.
+export function setupStepsToChecklist(steps: BackendSetupStep[]): SetupChecklistItem[] {
+  return steps.map((s) => ({
+    id: s.key,
+    icon: STEP_ICONS[s.key] || "•",
+    title: s.title,
+    complete: s.complete,
+    explanation: s.description,
+    cta: s.actionLabel,
+    href: s.actionHref,
+  }));
+}
+
 export function getSetupProgress(items: SetupChecklistItem[]) {
   const complete = items.filter((item) => item.complete).length;
   return {

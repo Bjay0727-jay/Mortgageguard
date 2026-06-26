@@ -57,6 +57,9 @@ export type UserRole = (typeof USER_ROLES)[number];
 // ─── Role Capabilities ───
 export const CAPABILITIES = [
   "viewDashboard",
+  "viewSetupStatus",
+  "manageCompanySettings",
+  "loadComplianceRules",
   "viewLoans",
   "createLoan",
   "advanceLoanStage",
@@ -87,12 +90,15 @@ export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
   company_admin: ALL_CAPABILITIES,
   qualifying_individual: [
     "viewDashboard",
+    "viewSetupStatus",
     "viewLoans",
     "createLoan",
     "advanceLoanStage",
     "uploadLoanDocument",
     "deleteLoanDocument",
     "viewCompliancePrograms",
+    "manageCompanySettings",
+    "loadComplianceRules",
     "manageCompliancePrograms",
     "uploadProgramDocument",
     "reviewCompliancePrograms",
@@ -108,6 +114,7 @@ export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
   ],
   loan_originator: [
     "viewDashboard",
+    "viewSetupStatus",
     "viewLoans",
     "createLoan",
     "advanceLoanStage",
@@ -116,6 +123,7 @@ export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
   ],
   processor: [
     "viewDashboard",
+    "viewSetupStatus",
     "viewLoans",
     "advanceLoanStage",
     "uploadLoanDocument",
@@ -123,11 +131,14 @@ export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
   ],
   compliance_officer: [
     "viewDashboard",
+    "viewSetupStatus",
     "viewLoans",
     "advanceLoanStage",
     "uploadLoanDocument",
     "deleteLoanDocument",
     "viewCompliancePrograms",
+    "manageCompanySettings",
+    "loadComplianceRules",
     "manageCompliancePrograms",
     "uploadProgramDocument",
     "reviewCompliancePrograms",
@@ -143,6 +154,7 @@ export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
   ],
   read_only: [
     "viewDashboard",
+    "viewSetupStatus",
     "viewLoans",
     "viewCompliancePrograms",
     "viewRegulatorySources",

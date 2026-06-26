@@ -17,6 +17,13 @@ CREATE TABLE IF NOT EXISTS companies (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Company profile columns used by the setup / company-settings flow (idempotent).
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS entity_type VARCHAR(20);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS primary_contact VARCHAR(255);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS primary_email VARCHAR(255);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS primary_phone VARCHAR(40);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS address TEXT;
+
 -- ─── Users ───
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

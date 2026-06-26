@@ -157,3 +157,44 @@ Public self-registration is disabled. New users join a company by invitation:
 5. The invitee opens `/invite/:token`, sets their name/password, and receives the company and role from the invite only.
 
 Invite tokens are generated with secure randomness. Only a SHA-256 token hash is stored in the database; raw tokens are shown once in the MVP invite link and are not recoverable from the database. Expired, revoked, or accepted invites cannot be reused.
+
+## Setup status & onboarding
+
+The dashboard onboarding panel and the dedicated **`/setup`** page are powered by real backend state via `GET /api/v1/setup/status` (capability `viewSetupStatus`, available to all company-scoped roles). The response includes `setupComplete`, `coreSetupComplete` (excludes the optional LOS integration), a `progress` object over the required steps, backend-generated `warnings`, and the per-step list with `complete`/`status`/`actionLabel`/`actionHref`/`details`.
+
+### Password limit (Cloudflare)
+
+Cloudflare Workers (workerd) hard-caps PBKDF2 at **100000 iterations**. `PBKDF2_ITERATIONS` must stay `<= 100000` (do **not** restore the OWASP 600000 value — it throws on this platform). A test asserts the cap.
+
+### Required vs optional steps
+
+| Step key | Required | Complete when |
+|----------|----------|---------------|
+| `change_default_admin_password` | yes | current user's `must_change_password = false` (protected routes redirect to `/change-password` until then) |
+| `confirm_company_profile` | yes | name, NMLS ID, entity type, compliance contact name + email, ≥1 licensed state, and `allows_remote_work` explicitly set (true/false) |
+| `load_texas_compliance_rules` | yes | active TX + federal `state_rules` and linked `required_documents` exist |
+| `create_first_loan` | yes | company has ≥1 loan |
+| `upload_required_compliance_program_documents` | yes | required programs exist, none missing/incomplete/overdue, Remote Work Policy current or `not_applicable` (Prompt 15A integrity) |
+| `invite_team_members` | yes | >1 active user or ≥1 accepted invite (pending-only → warning) |
+| `connect_los_integration` | **no** | an LOS integration is `connected`/`healthy` (optional) |
+
+### Company settings & remote work
+
+`GET/PATCH /api/v1/company/settings` (PATCH requires `manageCompanySettings`, emits `company.settings_updated`). The Company Settings page edits the profile fields above. **`allows_remote_work` must be confirmed explicitly** — it drives whether the Remote Work Policy program is required or marked `not_applicable` (Prompt 15A).
+
+### Loading Texas rules
+
+- `GET /api/v1/setup/rules-status?state=TX` returns counts + `loaded`/`blockers`.
+- `POST /api/v1/setup/load-rules` (capability `loadComplianceRules`) idempotently loads/verifies the TX + federal rule set and required documents (NOT EXISTS guards — never duplicates), and emits `setup.rules_loaded`. The dashboard CTA is **Load Texas Rules** (or visit `/setup?step=rules`).
+
+### Required programs & first loan
+
+The "Upload required compliance program documents" step integrates with the Prompt 15A Programs API — use **Set up required programs** on `/programs` (or `/setup?step=programs`); the step never hard-codes complete and degrades gracefully if no program rows exist yet. Create the first loan at **`/loans/new`**, which generates the initial compliance checklist from the loaded rules and redirects to the loan detail.
+
+### Connecting an LOS / inviting users
+
+LOS integration is optional for MVP — connect one any time from `/integrations`. Invite teammates from `/users` (see invite-only onboarding above).
+
+### Resetting demo/setup data
+
+Re-running `scripts/db-setup.sql` is idempotent (all `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / guarded seeds), so it is safe to apply repeatedly. To reset demo state, truncate the company-scoped tables (loans, documents, compliance_programs, reporting_deadlines, user_invitations) for the demo company; the seeded admin and catalog rows can be re-seeded via the setup actions.
