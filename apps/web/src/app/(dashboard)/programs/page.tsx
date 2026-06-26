@@ -8,14 +8,17 @@ import {
   Badge,
   Button,
   Card,
+  EmptyState,
   Input,
   MetricCard,
   Modal,
   PageHeader,
   Select,
+  Table,
   Textarea,
   useToast,
   type BadgeVariant,
+  type Column,
 } from "@/components/ui";
 
 interface Program {
@@ -78,6 +81,46 @@ export default function ProgramsPage() {
   const canManage = can("manageCompliancePrograms");
   const canUpload = can("uploadProgramDocument");
   const { summary } = data;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const columns: Column<Program>[] = [
+    {
+      key: "program",
+      header: "Program",
+      render: (p) => (
+        <div>
+          <p className="text-sm font-medium text-[var(--gray-900)]">{p.program_name}{p.version && <span className="ml-2 text-xs text-[var(--gray-400)]">{p.version}</span>}</p>
+          <p className="text-xs text-[var(--gray-500)]">{p.program_type}{p.is_required ? " · required" : ""}</p>
+        </div>
+      ),
+    },
+    { key: "required_by", header: "Required By", render: (p) => <span className="capitalize">{p.required_by || "—"}</span>, hideOnMobile: true },
+    { key: "owner", header: "Owner", render: (p) => p.owner || "—", hideOnMobile: true },
+    { key: "status", header: "Status", render: (p) => <Badge variant={STATUS_VARIANT[p.status] || "gray"}>{p.status}</Badge> },
+    {
+      key: "next_review",
+      header: "Next Review",
+      render: (p) => {
+        const overdue = p.next_review_due && String(p.next_review_due).slice(0, 10) < today && p.status !== "missing";
+        return <span className={overdue ? "font-semibold text-[var(--amb)]" : "text-[var(--gray-600)]"}>{p.next_review_due ? String(p.next_review_due).slice(0, 10) : "—"}</span>;
+      },
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (p) => (
+        <ProgramActions
+          program={p}
+          canUpload={canUpload}
+          canManage={canManage}
+          onUploaded={(msg) => { ok(msg); load(); }}
+          onError={fail}
+          onEdit={() => setEditing(p)}
+          onVersions={() => setVersionsFor(p)}
+        />
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -112,34 +155,21 @@ export default function ProgramsPage() {
         <MetricCard label="Review due" value={String(summary.overdueReview)} color="var(--amb)" bgColor="var(--amb-pl)" />
       </div>
 
-      {/* Program list */}
-      <Card flush className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-[var(--gray-200)]">
-          <thead className="bg-[var(--gray-50)]">
-            <tr>
-              {["Program", "Required By", "Owner", "Status", "Next Review", "Actions"].map((h) => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--gray-500)]">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--gray-100)]">
-            {data.programs.map((p) => (
-              <ProgramRow
-                key={p.id}
-                program={p}
-                canUpload={canUpload}
-                canManage={canManage}
-                onUploaded={(msg) => { ok(msg); load(); }}
-                onError={fail}
-                onEdit={() => setEditing(p)}
-                onVersions={() => setVersionsFor(p)}
-              />
-            ))}
-            {data.programs.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-[var(--gray-500)]">No programs yet. {canManage && "Use “Set up required programs” to start."}</td></tr>
-            )}
-          </tbody>
-        </table>
+      {/* Program list — responsive table (cards on small screens) */}
+      <Card flush className="overflow-hidden">
+        <Table
+          columns={columns}
+          data={data.programs}
+          rowKey={(p) => p.id}
+          caption="Compliance programs"
+          emptyState={
+            <EmptyState
+              icon={<span className="text-lg">📁</span>}
+              title="No programs yet"
+              description={canManage ? "Use “Set up required programs” to start." : "No compliance programs have been added yet."}
+            />
+          }
+        />
       </Card>
 
       {editing && (
@@ -160,15 +190,13 @@ function Banner({ color, text }: { color: "red" | "amber"; text: string }) {
   return <div className={`rounded-lg border border-transparent px-4 py-3 text-sm ${cls}`}>⚠️ {text}</div>;
 }
 
-function ProgramRow({ program: p, canUpload, canManage, onUploaded, onError, onEdit, onVersions }: {
+function ProgramActions({ program: p, canUpload, canManage, onUploaded, onError, onEdit, onVersions }: {
   program: Program; canUpload: boolean; canManage: boolean;
   onUploaded: (msg: string) => void; onError: (msg: string) => void; onEdit: () => void; onVersions: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
-  const reviewOverdue = p.next_review_due && String(p.next_review_due).slice(0, 10) < today && p.status !== "missing";
 
   async function upload() {
     if (!selected) return;
@@ -197,50 +225,34 @@ function ProgramRow({ program: p, canUpload, canManage, onUploaded, onError, onE
   }
 
   return (
-    <tr className="hover:bg-[var(--gray-50)]">
-      <td className="px-4 py-3">
-        <p className="text-sm font-medium text-[var(--gray-900)]">{p.program_name}{p.version && <span className="ml-2 text-xs text-[var(--gray-400)]">{p.version}</span>}</p>
-        <p className="text-xs text-[var(--gray-500)]">{p.program_type}{p.is_required ? " · required" : ""}</p>
-      </td>
-      <td className="px-4 py-3 text-sm capitalize text-[var(--gray-600)]">{p.required_by || "—"}</td>
-      <td className="px-4 py-3 text-sm text-[var(--gray-600)]">{p.owner || "—"}</td>
-      <td className="px-4 py-3">
-        <Badge variant={STATUS_VARIANT[p.status] || "gray"}>{p.status}</Badge>
-      </td>
-      <td className="px-4 py-3 text-sm">
-        <span className={reviewOverdue ? "font-semibold text-[var(--amb)]" : "text-[var(--gray-600)]"}>{p.next_review_due ? String(p.next_review_due).slice(0, 10) : "—"}</span>
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {p.file_path && (
-            <button onClick={download} className="text-xs font-semibold text-[var(--royal)] hover:underline">View file</button>
-          )}
-          <button onClick={onVersions} className="text-xs font-semibold text-[var(--gray-600)] hover:underline">History</button>
-          {canManage && <button onClick={onEdit} className="text-xs font-semibold text-[var(--gray-600)] hover:underline">Edit</button>}
-          {canUpload && (
-            <div className="flex items-center gap-1">
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.docx"
-                aria-label={`Upload document for ${p.program_name}`}
-                className="hidden"
-                onChange={(e) => setSelected(e.target.files?.[0] || null)}
-              />
-              {!selected ? (
-                <Button size="sm" onClick={() => fileRef.current?.click()}>Upload</Button>
-              ) : (
-                <>
-                  <span className="max-w-[140px] truncate text-xs text-[var(--gray-600)]" title={selected.name}>{selected.name}</span>
-                  <Button variant="success" size="sm" onClick={upload} loading={uploading}>{uploading ? "Uploading…" : "Confirm"}</Button>
-                  <button onClick={() => { setSelected(null); if (fileRef.current) fileRef.current.value = ""; }} disabled={uploading} aria-label="Clear selected file" className="text-xs text-[var(--gray-400)] hover:text-[var(--gray-600)]">✕</button>
-                </>
-              )}
-            </div>
+    <div className="flex flex-wrap items-center gap-2 md:justify-start">
+      {p.file_path && (
+        <button onClick={download} className="text-xs font-semibold text-[var(--royal)] hover:underline">View file</button>
+      )}
+      <button onClick={onVersions} className="text-xs font-semibold text-[var(--gray-600)] hover:underline">History</button>
+      {canManage && <button onClick={onEdit} className="text-xs font-semibold text-[var(--gray-600)] hover:underline">Edit</button>}
+      {canUpload && (
+        <div className="flex items-center gap-1">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,.docx"
+            aria-label={`Upload document for ${p.program_name}`}
+            className="hidden"
+            onChange={(e) => setSelected(e.target.files?.[0] || null)}
+          />
+          {!selected ? (
+            <Button size="sm" onClick={() => fileRef.current?.click()}>Upload</Button>
+          ) : (
+            <>
+              <span className="max-w-[140px] truncate text-xs text-[var(--gray-600)]" title={selected.name}>{selected.name}</span>
+              <Button variant="success" size="sm" onClick={upload} loading={uploading}>{uploading ? "Uploading…" : "Confirm"}</Button>
+              <button onClick={() => { setSelected(null); if (fileRef.current) fileRef.current.value = ""; }} disabled={uploading} aria-label="Clear selected file" className="text-xs text-[var(--gray-400)] hover:text-[var(--gray-600)]">✕</button>
+            </>
           )}
         </div>
-      </td>
-    </tr>
+      )}
+    </div>
   );
 }
 

@@ -20,9 +20,11 @@ const VARIANTS: Record<ButtonVariant, string> = {
 };
 
 const SIZES: Record<ButtonSize, string> = {
+  // `sm` stays compact for inline/table actions; `md`/`lg` meet the 44px
+  // minimum touch target for primary actions.
   sm: "text-xs px-3 py-1.5 gap-1.5 rounded-md",
-  md: "text-sm px-4 py-2.5 gap-2 rounded-lg",
-  lg: "text-base px-5 py-3 gap-2 rounded-lg",
+  md: "text-sm px-4 py-2.5 gap-2 rounded-lg min-h-[44px]",
+  lg: "text-base px-5 py-3 gap-2 rounded-lg min-h-[48px]",
 };
 
 const ICON_SIZES: Record<ButtonSize, string> = {
