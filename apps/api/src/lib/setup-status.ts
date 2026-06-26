@@ -128,6 +128,7 @@ export function buildSetupStatus(input: SetupInputs): SetupStatus {
       stateRulesCount: input.rules.stateRulesCount,
       requiredDocumentsCount: input.rules.requiredDocumentsCount,
       reportingDeadlinesCount: input.rules.reportingDeadlinesCount,
+      reportingObligationsCount: input.rules.reportingObligationsCount,
       activeRulesCount: input.rules.activeRulesCount,
     },
   });
