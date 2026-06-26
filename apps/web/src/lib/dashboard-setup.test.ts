@@ -55,3 +55,16 @@ describe("deriveTopActions includes program integrity actions", () => {
     expect(byId["overdue-programs"].count).toBe(1);
   });
 });
+
+describe("deriveTopActions surfaces loan-processing operations", () => {
+  const actions = deriveTopActions({
+    attentionLoans: [], programs: [], upcomingDeadlines: [], passingLoans: 0,
+    loanOps: { overdueTasks: 4, upcomingClosings: 2, txLogIssues: 5 },
+  });
+  const byId = Object.fromEntries(actions.map((a) => [a.id, a]));
+  it("includes overdue tasks, tx-log gaps, and upcoming closings with counts", () => {
+    expect(byId["loan-tasks"].count).toBe(4);
+    expect(byId["tx-log"].count).toBe(5);
+    expect(byId["upcoming-closings"].count).toBe(2);
+  });
+});

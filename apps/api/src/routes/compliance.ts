@@ -41,7 +41,14 @@ complianceRoutes.get("/dashboard", async (c) => {
   const programStats = await sql`SELECT status, COUNT(*) as count FROM compliance_programs WHERE company_id = ${user.companyId} GROUP BY status`;
   const upcomingDeadlines = await sql`SELECT * FROM reporting_deadlines WHERE company_id = ${user.companyId} ${state ? sql`AND (state_code = ${state} OR state_code IS NULL)` : sql``} AND status IN ('upcoming','in_progress') ORDER BY due_date LIMIT 5`;
   const attentionLoans = await sql`SELECT id, loan_number, borrower_last_name || ', ' || borrower_first_name as borrower, property_state, status, compliance_score, docs_complete, docs_required FROM loans WHERE ${scope} ${attentionStatus} AND compliance_score < 80 ORDER BY compliance_score LIMIT 5`;
-  return c.json({ examReadiness: { avgScore: Math.round(Number(loanStats.avg_score) || 0), totalLoans: Number(loanStats.total), criticalAlerts: Number(loanStats.critical), passingLoans: Number(loanStats.passing), totalVolume: Number(loanStats.total_volume) || 0 }, pipeline: byStage, stateBreakdown: byState, programs: programStats, upcomingDeadlines, attentionLoans, filters: { state, status, from, to } });
+
+  // Loan-processing operational counts for the dashboard top actions.
+  const [overdueTasks] = await sql`SELECT COUNT(*)::int AS n FROM loan_tasks WHERE company_id = ${user.companyId} AND status IN ('open','in_progress','blocked') AND due_at IS NOT NULL AND due_at < NOW()`;
+  const [upcomingClosings] = await sql`SELECT COUNT(*)::int AS n FROM loans WHERE ${scope} AND estimated_closing_date IS NOT NULL AND estimated_closing_date >= CURRENT_DATE AND estimated_closing_date <= CURRENT_DATE + INTERVAL '14 days' AND status NOT IN ('post_close','denied','withdrawn')`;
+  const [txLogIssues] = await sql`SELECT COUNT(*)::int AS n FROM loans WHERE ${scope} AND transaction_log_status IN ('missing_fields','overdue')`;
+  const loanOps = { overdueTasks: Number(overdueTasks?.n ?? 0), upcomingClosings: Number(upcomingClosings?.n ?? 0), txLogIssues: Number(txLogIssues?.n ?? 0) };
+
+  return c.json({ examReadiness: { avgScore: Math.round(Number(loanStats.avg_score) || 0), totalLoans: Number(loanStats.total), criticalAlerts: Number(loanStats.critical), passingLoans: Number(loanStats.passing), totalVolume: Number(loanStats.total_volume) || 0 }, pipeline: byStage, stateBreakdown: byState, programs: programStats, upcomingDeadlines, attentionLoans, loanOps, filters: { state, status, from, to } });
 });
 
 complianceRoutes.post("/recalculate/:loanId", async (c) => {
