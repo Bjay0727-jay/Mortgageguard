@@ -489,6 +489,32 @@ CREATE TABLE IF NOT EXISTS report_filing_events (
 CREATE INDEX IF NOT EXISTS idx_filing_events_deadline ON report_filing_events(reporting_deadline_id);
 CREATE INDEX IF NOT EXISTS idx_filing_events_company ON report_filing_events(company_id);
 
+-- ─── Evidence Packets (examiner-ready packet history; Prompt 14) ───
+CREATE TABLE IF NOT EXISTS evidence_packets (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  packet_key TEXT NOT NULL,
+  packet_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'generated',
+  scope JSONB NOT NULL,
+  r2_key_json TEXT,
+  r2_key_html TEXT,
+  r2_key_pdf TEXT,
+  r2_key_zip TEXT,
+  generated_by UUID REFERENCES users(id),
+  generated_at TIMESTAMPTZ DEFAULT NOW(),
+  row_count INTEGER DEFAULT 0,
+  warning_count INTEGER DEFAULT 0,
+  blocker_count INTEGER DEFAULT 0,
+  hash TEXT,
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_packets_company ON evidence_packets(company_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_packets_type ON evidence_packets(company_id, packet_type);
+
 -- ─── Integrations ───
 CREATE TABLE IF NOT EXISTS integrations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

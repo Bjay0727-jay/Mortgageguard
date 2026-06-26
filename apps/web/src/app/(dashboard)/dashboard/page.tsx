@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useCapabilities } from "@/lib/capabilities";
 import { StatusBadge } from "@/components/status-badge";
 import { MetricCard } from "@/components/ui";
 import {
@@ -83,6 +84,7 @@ function titleCase(stage: string) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { can } = useCapabilities();
   const [data, setData] = useState<DashboardData | null>(null);
   const [setupStatus, setSetupStatus] = useState<BackendSetupStatus | null>(null);
   const [error, setError] = useState("");
@@ -165,9 +167,16 @@ export default function DashboardPage() {
                 MortgageGuard guides your team from first setup to exam-ready reporting with checklists, deadlines, programs, and audit trails.
               </p>
             </div>
-            <Link href="/loans" className="inline-flex items-center justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#1B3A6B] shadow-sm hover:bg-[#E8EEF7]">
-              Create First Loan
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              {can("generateEvidencePackets") && (
+                <Link href="/evidence-packets?type=examination" className="inline-flex items-center justify-center rounded-xl border border-white/40 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10">
+                  Generate Examination Readiness Packet
+                </Link>
+              )}
+              <Link href="/loans" className="inline-flex items-center justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#1B3A6B] shadow-sm hover:bg-[#E8EEF7]">
+                Create First Loan
+              </Link>
+            </div>
           </div>
         </div>
         <div className="grid gap-4 p-5 lg:grid-cols-[1fr_360px]">
