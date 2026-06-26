@@ -62,6 +62,7 @@ describe("deriveLoanIntegrity", () => {
   it("warns on overdue tasks", () => {
     const r = deriveLoanIntegrity(base({ tasks: [{ status: "open", due_at: "2026-05-01" }] }));
     expect(r.warnings.join(" ")).toMatch(/overdue task/);
+    expect(r.nextActions.find((a) => /overdue tasks/i.test(a.label))?.href).toBe("/loans/loan-1?tab=tasks");
   });
 
   it("flags a critical compliance score", () => {

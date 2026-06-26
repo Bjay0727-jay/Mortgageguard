@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useCapabilities } from "@/lib/capabilities";
@@ -99,6 +99,32 @@ interface TimelineEvent {
   performed_by_name: string | null;
 }
 
+interface LoanIntegrity {
+  status: "clean" | "needs_attention" | "blocked" | "critical";
+  blockers: string[];
+  warnings: string[];
+  nextActions: { label: string; href: string; priority: "low" | "normal" | "high" | "critical" }[];
+}
+
+interface LoanTask {
+  id: string;
+  title: string;
+  description: string | null;
+  task_type: string;
+  status: string;
+  priority: string;
+  auto_key: string | null;
+  assigned_to_name: string | null;
+  due_at: string | null;
+}
+
+const INTEGRITY_META: Record<LoanIntegrity["status"], { label: string; tone: "green" | "amber" | "red"; bg: string; fg: string }> = {
+  clean: { label: "Clean", tone: "green", bg: "var(--grn-pl)", fg: "var(--grn)" },
+  needs_attention: { label: "Needs attention", tone: "amber", bg: "var(--amb-pl)", fg: "var(--amb)" },
+  blocked: { label: "Blocked", tone: "red", bg: "var(--red-pl)", fg: "var(--red)" },
+  critical: { label: "Critical", tone: "red", bg: "var(--red-pl)", fg: "var(--red)" },
+};
+
 function formatStage(stage: string) {
   return stage.split("_").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
 }
@@ -123,11 +149,17 @@ function formatBytes(bytes: number | null | undefined) {
 
 export default function LoanDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const [loan, setLoan] = useState<Loan | null>(null);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
-  const [tab, setTab] = useState<"details" | "checklist" | "timeline">("details");
+  const [integrity, setIntegrity] = useState<LoanIntegrity | null>(null);
+  const [tasks, setTasks] = useState<LoanTask[]>([]);
+  const initialTab = (["details", "checklist", "tasks", "timeline"] as const).find(
+    (t) => t === searchParams.get("tab"),
+  ) ?? "details";
+  const [tab, setTab] = useState<"details" | "checklist" | "tasks" | "timeline">(initialTab);
   const [error, setError] = useState("");
   const [uploadItem, setUploadItem] = useState<ChecklistItem | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -162,8 +194,27 @@ export default function LoanDetailPage() {
     setTimeline(data.events);
   }
 
+  async function refreshIntegrity() {
+    const data = await api.get<{ integrity: LoanIntegrity }>(`/api/v1/loans/${id}/integrity`);
+    setIntegrity(data.integrity);
+  }
+
+  async function refreshTasks() {
+    const data = await api.get<{ tasks: LoanTask[] }>(`/api/v1/loans/${id}/tasks`);
+    setTasks(data.tasks);
+  }
+
+  async function completeTask(taskId: string) {
+    try {
+      await api.patch(`/api/v1/loans/${id}/tasks/${taskId}`, { status: "complete" });
+      await Promise.all([refreshTasks(), refreshIntegrity()]);
+    } catch (e: any) {
+      toast({ variant: "error", title: "Could not update task", description: e.message });
+    }
+  }
+
   async function refreshAfterUpload() {
-    await Promise.all([refreshLoan(), refreshChecklist(), refreshTimeline()]);
+    await Promise.all([refreshLoan(), refreshChecklist(), refreshTimeline(), refreshIntegrity(), refreshTasks()]);
     if (gateReview) {
       const data = await api.get<GateReview>(`/api/v1/loans/${id}/gate/${gateReview.targetStage}`);
       setGateReview(data);
@@ -213,6 +264,8 @@ export default function LoanDetailPage() {
     refreshLoan().catch((e) => setError(e.message));
     refreshChecklist().catch((e) => setError(e.message));
     refreshTimeline().catch(() => {});
+    refreshIntegrity().catch(() => {});
+    refreshTasks().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -306,9 +359,11 @@ export default function LoanDetailPage() {
   const fmt = (n: string | number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(n));
 
+  const openTasks = tasks.filter((t) => !["complete", "canceled"].includes(t.status)).length;
   const tabs = [
     { id: "details", label: "Loan Details" },
     { id: "checklist", label: `Checklist (${checklist.filter((c) => c.uploaded).length}/${checklist.length})` },
+    { id: "tasks", label: `Tasks${openTasks ? ` (${openTasks})` : ""}` },
     { id: "timeline", label: "Timeline" },
   ];
 
@@ -398,6 +453,28 @@ export default function LoanDetailPage() {
         </div>
       </Card>
 
+      {/* Integrity rollup */}
+      {integrity && integrity.status !== "clean" && (
+        <div className="rounded-lg p-4" style={{ background: INTEGRITY_META[integrity.status].bg, color: INTEGRITY_META[integrity.status].fg }}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold">Loan integrity: {INTEGRITY_META[integrity.status].label}</span>
+          </div>
+          {(integrity.blockers.length > 0 || integrity.warnings.length > 0) && (
+            <ul className="mt-1 list-disc pl-5 text-sm">
+              {integrity.blockers.map((b) => <li key={b}>{b}</li>)}
+              {integrity.warnings.map((w) => <li key={w}>{w}</li>)}
+            </ul>
+          )}
+          {integrity.nextActions.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {integrity.nextActions.map((a) => (
+                <Link key={a.label} href={a.href} className="rounded-md bg-white/70 px-2.5 py-1 text-xs font-semibold underline">{a.label}</Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <Tabs tabs={tabs} value={tab} onChange={(t) => setTab(t as typeof tab)} aria-label="Loan sections" />
 
       {tab === "details" && (
@@ -439,6 +516,39 @@ export default function LoanDetailPage() {
               />
             }
           />
+        </Card>
+      )}
+
+      {tab === "tasks" && (
+        <Card flush className="overflow-hidden">
+          {tasks.length === 0 ? (
+            <EmptyState icon={<span className="text-lg">✅</span>} title="No tasks" description="Auto-generated and manual tasks for this loan appear here." />
+          ) : (
+            <ul className="divide-y divide-[var(--gray-100)]">
+              {tasks.map((t) => {
+                const done = ["complete", "canceled"].includes(t.status);
+                const overdue = !done && t.due_at && new Date(t.due_at).getTime() < Date.now();
+                return (
+                  <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className={`text-sm font-medium ${done ? "text-[var(--gray-400)] line-through" : "text-[var(--gray-900)]"}`}>{t.title}</p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--gray-500)]">
+                        <Badge variant={t.priority === "critical" || t.priority === "high" ? "red" : "gray"}>{t.priority}</Badge>
+                        <span className="capitalize">{t.task_type.replace(/_/g, " ")}</span>
+                        {t.auto_key && <Badge variant="gray">auto</Badge>}
+                        {t.assigned_to_name && <span>· {t.assigned_to_name}</span>}
+                        {t.due_at && <span className={overdue ? "font-semibold text-[var(--red)]" : ""}>· due {String(t.due_at).slice(0, 10)}</span>}
+                      </div>
+                    </div>
+                    {!done && can("manageLoanTasks") && (
+                      <Button size="sm" variant="secondary" onClick={() => completeTask(t.id)}>Complete</Button>
+                    )}
+                    {done && <Badge variant="green">{t.status}</Badge>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </Card>
       )}
 
@@ -631,6 +741,7 @@ export default function LoanDetailPage() {
         <div className="flex flex-col gap-2">
           <Button variant="secondary" fullWidth onClick={() => { setTab("details"); setMoreOpen(false); }}>View loan details</Button>
           <Button variant="secondary" fullWidth onClick={() => { setTab("checklist"); setMoreOpen(false); }}>Document checklist</Button>
+          <Button variant="secondary" fullWidth onClick={() => { setTab("tasks"); setMoreOpen(false); }}>Tasks</Button>
           <Button variant="secondary" fullWidth onClick={() => { setTab("timeline"); setMoreOpen(false); }}>Timeline</Button>
           <Link href="/loans" className="mt-1 text-center text-sm font-medium text-[var(--royal)] hover:underline" onClick={() => setMoreOpen(false)}>← Back to all loans</Link>
         </div>

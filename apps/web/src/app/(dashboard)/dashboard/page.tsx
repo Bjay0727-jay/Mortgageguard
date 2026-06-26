@@ -46,6 +46,7 @@ interface DashboardData {
     docs_complete?: number;
   }[];
   programs: { status: string; count: number }[];
+  loanOps?: { overdueTasks: number; upcomingClosings: number; txLogIssues: number };
 }
 
 const T = {
@@ -141,6 +142,7 @@ export default function DashboardPage() {
   const noDeadlines = data.upcomingDeadlines.length === 0;
   const shouldShowOnboarding = setupProgress.complete < setupProgress.total;
   const topActionsInput = {
+    loanOps: data.loanOps,
     attentionLoans: data.attentionLoans,
     programs: data.programs,
     upcomingDeadlines: data.upcomingDeadlines,

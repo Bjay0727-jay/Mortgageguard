@@ -202,6 +202,7 @@ export interface TopActionsInput {
   programs: { status: string; count: number }[];
   upcomingDeadlines: unknown[];
   passingLoans: number;
+  loanOps?: { overdueTasks?: number; upcomingClosings?: number; txLogIssues?: number };
 }
 
 export interface TopAction {
@@ -283,6 +284,33 @@ export function deriveTopActions(data: TopActionsInput): TopAction[] {
       href: "/programs",
       cta: "Verify Sources",
       count: sourceReviewDue,
+      priority: "Medium",
+    },
+    {
+      id: "loan-tasks",
+      title: "Resolve overdue loan tasks",
+      description: "Clear processing tasks that are past their due date.",
+      href: "/loans",
+      cta: "Review Loans",
+      count: data.loanOps?.overdueTasks ?? 0,
+      priority: "High",
+    },
+    {
+      id: "tx-log",
+      title: "Fix transaction-log gaps",
+      description: "Complete missing or overdue transaction-log fields on open loans.",
+      href: "/loans",
+      cta: "Open Loans",
+      count: data.loanOps?.txLogIssues ?? 0,
+      priority: "Medium",
+    },
+    {
+      id: "upcoming-closings",
+      title: "Prepare upcoming closings",
+      description: "Loans closing within 14 days — clear closing conditions.",
+      href: "/loans",
+      cta: "Review Closings",
+      count: data.loanOps?.upcomingClosings ?? 0,
       priority: "Medium",
     },
   ];
