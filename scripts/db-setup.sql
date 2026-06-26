@@ -229,6 +229,38 @@ CREATE TABLE IF NOT EXISTS compliance_checks (
 
 CREATE INDEX IF NOT EXISTS idx_checks_loan ON compliance_checks(loan_id);
 
+-- ─── Loan Documents (runtime table) ───
+-- The runtime + Drizzle schema read/write `loan_documents` (the legacy
+-- `documents` table above predates this). Created idempotently so a fresh
+-- database matches the application. (Schema-drift fix, Prompt 19.)
+CREATE TABLE IF NOT EXISTS loan_documents (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  loan_id UUID NOT NULL REFERENCES loans(id),
+  document_type VARCHAR(100) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_path TEXT,
+  file_size INTEGER,
+  mime_type VARCHAR(100),
+  status VARCHAR(20) NOT NULL DEFAULT 'uploaded',
+  uploaded BOOLEAN DEFAULT true,
+  is_signed BOOLEAN DEFAULT false,
+  signed_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  uploaded_by UUID REFERENCES users(id),
+  uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+  metadata JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_loan_documents_loan ON loan_documents(loan_id);
+CREATE INDEX IF NOT EXISTS idx_loan_documents_type ON loan_documents(document_type);
+
+-- Drizzle-defined columns kept in sync with db-setup (idempotent; Prompt 19).
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS tx_log_entry_date TIMESTAMPTZ;
+ALTER TABLE state_rules ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;
+ALTER TABLE state_rules ADD COLUMN IF NOT EXISTS source_url VARCHAR(500);
+ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS sample_form_url VARCHAR(500);
+ALTER TABLE compliance_checks ADD COLUMN IF NOT EXISTS checked_by UUID REFERENCES users(id);
+
 -- ─── Loan Timeline (Audit Events) ───
 CREATE TABLE IF NOT EXISTS loan_timeline (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

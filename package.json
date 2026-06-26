@@ -8,6 +8,7 @@
     "db:generate": "cd apps/api && drizzle-kit generate",
     "db:migrate": "cd apps/api && drizzle-kit migrate",
     "db:seed": "cd apps/api && npx tsx src/db/seeds/index.ts",
+    "db:validate": "npx tsx scripts/validate-schema-drift.ts",
     "test": "turbo test",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck"
