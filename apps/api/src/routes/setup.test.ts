@@ -43,14 +43,14 @@ vi.mock("postgres", () => ({
       const stateCode = values[8];
       const ruleExists = state.rules.find((r) => r.rule_name === ruleName && r.state_code === stateCode);
       if (ruleExists && !state.reqdocs.find((d) => d.rule_name === ruleName && d.document_type === documentType)) {
-        state.reqdocs.push({ rule_name: ruleName, document_type: documentType });
+        state.reqdocs.push({ rule_name: ruleName, document_type: documentType, state_code: stateCode });
       }
       return [];
     }
     if (q.includes("INSERT INTO reporting_deadlines")) {
-      const [companyId, reportType, , quarter] = values;
+      const [companyId, reportType, , quarter, dueDate] = values;
       if (!state.deadlines.find((d) => d.company_id === companyId && d.report_type === reportType && d.quarter === quarter)) {
-        state.deadlines.push({ company_id: companyId, report_type: reportType, quarter });
+        state.deadlines.push({ company_id: companyId, report_type: reportType, quarter, due_date: dueDate });
       }
       return [];
     }
@@ -58,8 +58,21 @@ vi.mock("postgres", () => ({
     // ── reads ──
     if (q.includes("SELECT name, email, must_change_password FROM users")) return [state.user];
     if (q.includes("SELECT * FROM companies WHERE id")) return [state.company];
-    if (q.includes("FROM required_documents rd JOIN state_rules")) return [{ total: state.reqdocs.length }];
-    if (q.includes("FILTER (WHERE is_active)")) return [{ total: state.rules.length, active: state.rules.filter((r) => r.is_active).length, last_loaded: null }];
+    if (q.includes("FROM required_documents rd JOIN state_rules")) {
+      // State-specific docs query uses "WHERE sr.state_code = ?"; combined uses "IN (?, 'FED')".
+      if (q.includes("WHERE sr.state_code = ?")) {
+        const st = values[0];
+        return [{ total: state.reqdocs.filter((d) => d.state_code === st).length }];
+      }
+      return [{ total: state.reqdocs.length }];
+    }
+    if (q.includes("FILTER (WHERE is_active)")) {
+      if (q.includes("state_code = ?")) {
+        const st = values[0];
+        return [{ active: state.rules.filter((r) => r.is_active && r.state_code === st).length }];
+      }
+      return [{ total: state.rules.length, active: state.rules.filter((r) => r.is_active).length, last_loaded: null }];
+    }
     if (q.includes("FROM reporting_deadlines WHERE company_id")) return [{ total: state.deadlines.length }];
     if (q.includes("FROM loans WHERE company_id")) return [{ total: state.loanCount }];
     if (q.includes("status, is_required, applicable FROM compliance_programs")) return state.programs;
@@ -111,7 +124,7 @@ describe("GET /setup/status", () => {
     state.user = { name: "Jane", email: "jane@acme.com", must_change_password: false };
     state.company = { id: "company-1", name: "Acme", nmls_id: "123", entity_type: "broker", primary_contact: "Jane", primary_email: "jane@acme.com", address: "1 St", license_states: ["TX"], allows_remote_work: false };
     state.rules = TEXAS_STATE_RULES.map((r) => ({ state_code: r.stateCode, rule_name: r.ruleName, is_active: true }));
-    state.reqdocs = TEXAS_REQUIRED_DOCUMENTS.map((d) => ({ rule_name: d.ruleName, document_type: d.documentType }));
+    state.reqdocs = TEXAS_REQUIRED_DOCUMENTS.map((d) => ({ rule_name: d.ruleName, document_type: d.documentType, state_code: d.stateCode }));
     state.loanCount = 1;
     state.programs = [{ status: "current", is_required: true, applicable: true }];
     state.activeUsers = 2;
@@ -138,6 +151,12 @@ describe("POST /setup/load-rules", () => {
     await app().request("/api/v1/setup/load-rules", { method: "POST", headers: { ...(await auth("company_admin")), "Content-Type": "application/json" }, body: JSON.stringify({ state: "TX" }) }, createMockEnv());
     expect(state.rules).toHaveLength(TEXAS_STATE_RULES.length);
     expect(state.reqdocs).toHaveLength(TEXAS_REQUIRED_DOCUMENTS.length);
+  });
+
+  it("seeds reporting deadlines with the real quarter-derived due date (not the load date)", async () => {
+    await app().request("/api/v1/setup/load-rules", { method: "POST", headers: { ...(await auth("company_admin")), "Content-Type": "application/json" }, body: JSON.stringify({ state: "TX" }) }, createMockEnv());
+    expect(state.deadlines.length).toBeGreaterThan(0);
+    expect(state.deadlines.every((d) => d.due_date === "2026-05-15")).toBe(true);
   });
 
   it("read_only cannot load rules", async () => {

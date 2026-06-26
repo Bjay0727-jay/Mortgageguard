@@ -1,11 +1,20 @@
 // Texas compliance rules status — derived from DB counts. Pure + testable.
+//
+// Counts track federal+state combined totals (for display) AND the
+// state-specific subset, because federal seed rows alone must NOT mark a state
+// as "loaded": a DB with only the FED rows, or a partial load that stopped
+// after federal data, still needs its state-specific rules/documents.
 
 export interface RulesStatusCounts {
   state: string;
+  // Combined state + federal counts.
   stateRulesCount: number;
   requiredDocumentsCount: number;
   reportingDeadlinesCount: number;
   activeRulesCount: number;
+  // State-specific (e.g. TX-only) subset.
+  stateSpecificActiveRulesCount: number;
+  stateSpecificRequiredDocumentsCount: number;
   lastLoadedAt?: string | null;
 }
 
@@ -22,9 +31,15 @@ export function computeRulesStatus(counts: RulesStatusCounts): RulesStatus {
   if (counts.stateRulesCount === 0) blockers.push(`No ${counts.state} or federal compliance rules are loaded.`);
   if (counts.activeRulesCount === 0) blockers.push("No active rules are present.");
   if (counts.requiredDocumentsCount === 0) blockers.push("No required documents are linked to rules.");
+  if (counts.stateSpecificActiveRulesCount === 0) blockers.push(`No active ${counts.state}-specific rules are loaded.`);
+  if (counts.stateSpecificRequiredDocumentsCount === 0) blockers.push(`No ${counts.state}-specific required documents are loaded.`);
   if (counts.reportingDeadlinesCount === 0) warnings.push("No reporting deadlines are configured yet.");
 
-  const loaded = counts.stateRulesCount > 0 && counts.activeRulesCount > 0 && counts.requiredDocumentsCount > 0;
+  const loaded =
+    counts.activeRulesCount > 0 &&
+    counts.requiredDocumentsCount > 0 &&
+    counts.stateSpecificActiveRulesCount > 0 &&
+    counts.stateSpecificRequiredDocumentsCount > 0;
 
   return {
     ...counts,

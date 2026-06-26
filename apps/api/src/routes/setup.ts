@@ -26,12 +26,17 @@ function isSeededAdmin(u: any): boolean {
 async function gatherRulesStatus(sql: any, companyId: string, state = "TX"): Promise<RulesStatus> {
   const [rules] = await sql`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE is_active)::int AS active, MAX(created_at) AS last_loaded FROM state_rules WHERE state_code IN (${state}, 'FED')`;
   const [docs] = await sql`SELECT COUNT(*)::int AS total FROM required_documents rd JOIN state_rules sr ON sr.id = rd.state_rule_id WHERE sr.state_code IN (${state}, 'FED')`;
+  // State-specific subset — federal rows alone must not mark the state loaded.
+  const [stateRules] = await sql`SELECT COUNT(*) FILTER (WHERE is_active)::int AS active FROM state_rules WHERE state_code = ${state}`;
+  const [stateDocs] = await sql`SELECT COUNT(*)::int AS total FROM required_documents rd JOIN state_rules sr ON sr.id = rd.state_rule_id WHERE sr.state_code = ${state}`;
   const [deadlines] = await sql`SELECT COUNT(*)::int AS total FROM reporting_deadlines WHERE company_id = ${companyId}`;
   return computeRulesStatus({
     state,
     stateRulesCount: Number(rules?.total ?? 0),
     activeRulesCount: Number(rules?.active ?? 0),
     requiredDocumentsCount: Number(docs?.total ?? 0),
+    stateSpecificActiveRulesCount: Number(stateRules?.active ?? 0),
+    stateSpecificRequiredDocumentsCount: Number(stateDocs?.total ?? 0),
     reportingDeadlinesCount: Number(deadlines?.total ?? 0),
     lastLoadedAt: rules?.last_loaded ?? null,
   });
@@ -54,9 +59,11 @@ async function loadRules(sql: any, companyId: string, state = "TX") {
         AND NOT EXISTS (SELECT 1 FROM required_documents rd WHERE rd.state_rule_id = sr.id AND rd.document_type = ${d.documentType})`;
   }
   for (const dl of TEXAS_REPORTING_DEADLINES) {
+    // Store the real regulatory due date (45 days after quarter end), not a date
+    // derived from when load-rules happens to run.
     await sql`
       INSERT INTO reporting_deadlines (company_id, report_type, state_code, quarter, due_date, status)
-      SELECT ${companyId}, ${dl.reportType}, ${dl.stateCode}, ${dl.quarter}, CURRENT_DATE + ${dl.dueOffsetDays}, 'upcoming'
+      SELECT ${companyId}, ${dl.reportType}, ${dl.stateCode}, ${dl.quarter}, ${dl.dueDate}, 'upcoming'
       WHERE NOT EXISTS (SELECT 1 FROM reporting_deadlines WHERE company_id = ${companyId} AND report_type = ${dl.reportType} AND quarter = ${dl.quarter})`;
   }
   return gatherRulesStatus(sql, companyId, state);

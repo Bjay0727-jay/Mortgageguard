@@ -91,13 +91,16 @@ export const TEXAS_REQUIRED_DOCUMENTS: readonly RequiredDocumentDef[] = [
 ];
 
 // Quarterly reporting deadlines to ensure for a company (idempotent by report_type+quarter).
+// `dueDate` is the actual regulatory due date (45 days after quarter end), NOT a
+// value derived from when setup happens to run.
 export interface ReportingDeadlineDef {
   reportType: string;
   stateCode: string;
   quarter: string;
-  dueOffsetDays: number; // informational
+  dueDate: string; // ISO date — 45 days after the quarter end
 }
 export const TEXAS_REPORTING_DEADLINES: readonly ReportingDeadlineDef[] = [
-  { reportType: "TX RMLA Quarterly", stateCode: "TX", quarter: "Q1-2026", dueOffsetDays: 45 },
-  { reportType: "TX SSSF Quarterly", stateCode: "TX", quarter: "Q1-2026", dueOffsetDays: 45 },
+  // Q1-2026 ends 2026-03-31; due within 45 days → 2026-05-15.
+  { reportType: "TX RMLA Quarterly", stateCode: "TX", quarter: "Q1-2026", dueDate: "2026-05-15" },
+  { reportType: "TX SSSF Quarterly", stateCode: "TX", quarter: "Q1-2026", dueDate: "2026-05-15" },
 ];
