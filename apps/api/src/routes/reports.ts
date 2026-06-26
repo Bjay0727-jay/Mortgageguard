@@ -21,6 +21,7 @@ import {
   sanitizePathSegment,
 } from "../lib/documents";
 import { buildLoanEvidencePacket, buildRangeEvidencePacket, evidencePacketKey } from "../services/evidence-packet";
+import { tryCreateOutboxEvent } from "../lib/outbox";
 
 export const reportRoutes = new Hono<{ Bindings: Env }>();
 
@@ -283,6 +284,7 @@ reportRoutes.post("/deadlines/:id/file", requireCapability("fileReports"),
       RETURNING *`;
 
     await audit(c, user, { type: "report.filed", entityId: id, action: "file_report", details: { confirmationNumber: confirmation, filedAt: filedAtVal, obligationKey: updated?.obligation_key, jurisdiction: updated?.jurisdiction } });
+    await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "report.filed", aggregateType: "reporting_deadline", aggregateId: id, idempotencyKey: `report:${id}:filed:${confirmation ?? "noconf"}`, payload: { obligationKey: updated?.obligation_key, jurisdiction: updated?.jurisdiction, confirmationNumber: confirmation, filedAt: filedAtVal, actorUserId: user.userId } });
     return c.json({ deadline: updated });
   });
 

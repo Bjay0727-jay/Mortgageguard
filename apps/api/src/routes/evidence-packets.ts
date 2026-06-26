@@ -17,6 +17,7 @@ import {
   type LoanPacketChecklistItem,
 } from "../lib/evidence-packets";
 import { renderEvidencePacketHtml, renderEvidencePacketJson } from "../lib/evidence-packet-renderer";
+import { tryCreateOutboxEvent } from "../lib/outbox";
 
 export const evidencePacketRoutes = new Hono<{ Bindings: Env }>();
 
@@ -64,6 +65,7 @@ async function persistPacket(c: any, user: any, sql: any, payload: EvidencePacke
     VALUES (${payload.packetId}::uuid, ${user.companyId}, ${payload.packetKey}, ${packetType}, ${payload.title}, 'generated', ${sql.json(payload.scope)}, ${r2KeyJson}, ${r2KeyHtml}, ${user.userId}::uuid, ${payload.summary.totalItems}, ${payload.summary.warningCount}, ${payload.summary.blockerCount}, ${payload.hash ?? null}, ${sql.json({ summaryStatus: payload.summary.status })})
     RETURNING id, packet_key, packet_type, title, status, generated_at, warning_count, blocker_count`;
   await audit(c, user, { type: "evidence_packet.generated", entityId: payload.packetId, action: "generate_evidence_packet", details: { packetKey: payload.packetKey, packetType, scope: payload.scope, hash: payload.hash, rowCount: payload.summary.totalItems, warningCount: payload.summary.warningCount, blockerCount: payload.summary.blockerCount, r2Key: r2KeyJson } });
+  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "evidence_packet.generated", aggregateType: "evidence_packet", aggregateId: payload.packetId, idempotencyKey: `packet:${payload.packetId}:generated`, payload: { packetKey: payload.packetKey, packetType, hash: payload.hash, summaryStatus: payload.summary.status, actorUserId: user.userId } });
   return { ...row, formats: ["json", "html"] };
 }
 

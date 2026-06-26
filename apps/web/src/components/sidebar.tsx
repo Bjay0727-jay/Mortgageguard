@@ -121,6 +121,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/company-settings", label: "Company Settings", icon: <IconSettings />, capability: "manageUsers" },
       { href: "/users", label: "Users", icon: <IconSettings />, capability: "manageInvites" },
       { href: "/settings/audit", label: "Audit Log", icon: <IconSettings />, capability: "viewAuditTrail" },
+      { href: "/admin/outbox", label: "Audit Outbox", icon: <IconSettings />, capability: "viewOutbox" },
     ],
   },
 ];
