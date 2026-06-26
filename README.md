@@ -94,6 +94,18 @@ Each required program carries **evidence requirements** (e.g. AML: policy, senio
 
 See [Reports, filing evidence & transaction logs](#reports-filing-evidence--transaction-logs-prompt-13).
 
+### Evidence Packets (protected)
+- `GET /api/v1/evidence-packets` — Packet history (cap `viewEvidencePackets`)
+- `GET /api/v1/evidence-packets/:id` — Packet metadata
+- `POST /api/v1/evidence-packets/loan/:loanId` — Generate a loan evidence packet (cap `generateEvidencePackets`)
+- `POST /api/v1/evidence-packets/programs` — Generate a program evidence packet
+- `POST /api/v1/evidence-packets/reporting` — Generate a reporting evidence packet
+- `POST /api/v1/evidence-packets/examination` — Generate a full examination readiness packet
+- `GET /api/v1/evidence-packets/:id/download?format=json|html` — Download (cap `downloadEvidencePackets`)
+- `DELETE /api/v1/evidence-packets/:id` — Soft-delete (cap `deleteEvidencePackets`)
+
+See [Examiner evidence packets](#examiner-evidence-packets-prompt-14).
+
 ### Integrations (admin)
 - `GET /api/v1/integrations/available` — Supported LOS systems
 - `GET /api/v1/integrations/connected` — Company integrations
@@ -230,6 +242,33 @@ Turns operational loan/program data into compliance reports, filing evidence, an
 New tables (`scripts/db-setup.sql`, idempotent): `reporting_obligations`, `report_exports`, `report_filing_events`; `reporting_deadlines` gains `obligation_key`, `jurisdiction`, `period_start`, `period_end`, `receipt_document_id`. Capabilities: `setupReportingDeadlines`, `fileReports`, `uploadReportReceipts`, `viewReportAudit` (admin/qualifying-individual/compliance-officer get all; originators/processors/read-only get `viewReports`). Audit events: `reports.deadlines_setup`, `report.transaction_log_exported`, `report.filed`, `report.receipt_uploaded`.
 
 > Not an official NMLS submission: trackers record filing **evidence** (confirmation numbers + receipts), not NMLS-format submissions.
+
+## Examiner evidence packets (Prompt 14)
+
+Assembles loan / program / reporting / setup data into downloadable examiner-ready packets. Pure builders (`lib/evidence-packets.ts`) turn already-fetched data into a consistent `EvidencePacketPayload` (sections + warnings + blockers + summary + integrity hash); the route layer fetches inputs, renders, stores, and audits.
+
+### Packet types
+- **Loan Evidence Packet** (`loan_evidence_packet`) — loan summary, transaction-log completeness, checklist (satisfied / missing / N-A / invalid), uploaded documents, triggered conditional flags (50(a)(6), 50(f)(2), reverse, wrap, ARM, company/banker disclosure), stage-gate readiness, tasks, regulatory citations, audit trail.
+- **Program Evidence Packet** (`program_evidence_packet`) — required (and optionally recommended) programs, current documents, evidence checklist, review history, and regulatory basis with source-verification status.
+- **Reporting Evidence Packet** (`reporting_evidence_packet`) — reporting obligations + derived deadline status, filed dates / confirmation numbers / receipts, report-export history, and transaction-log gap summary.
+- **Examination Readiness Packet** (`examination_readiness_packet`) — company/setup readiness, program summary, source-verification summary, reporting status, transaction-log summary, loan inventory, and per-loan evidence summaries.
+
+### Output, storage & integrity
+- **JSON** and **HTML** are rendered for every packet (`lib/evidence-packet-renderer.ts`; HTML is fully escaped). PDF/ZIP are intentionally out of scope for this MVP.
+- Artifacts are stored in the company-scoped `EXPORTS` R2 bucket at `exports/{companyId}/evidence-packets/{packetType}/{packetId}.{json,html}`.
+- Each packet carries a deterministic **integrity hash** (`cyrb53:…`) that changes whenever the payload changes — change-detection metadata, not a cryptographic signature.
+- History is tracked in `evidence_packets` (status `generating | generated | failed | expired | deleted`; `DELETE` soft-deletes). A failed generation records a `failed` row so history stays honest.
+
+### Warnings vs blockers
+Builders never emit a silently-clean packet. **Warnings**: rules not loaded, optional document missing, transaction-log gaps, source verification due, missing receipt, open tasks, review overdue. **Blockers**: required document/evidence/program missing, stage gate blocked, report overdue, invalid/rejected/expired document used as evidence, company profile incomplete. Invalid-document, blocked-gate, and overdue-report blockers escalate the packet summary to `critical`.
+
+### Capabilities & UI
+Capabilities: `viewEvidencePackets`, `generateEvidencePackets`, `downloadEvidencePackets`, `deleteEvidencePackets` (admin / qualifying-individual / compliance-officer get all; originators get view+generate+download; processors/read-only get view+download). The **Evidence Packets** page (generate / history / detail) plus entry-point buttons on the Loan, Programs, Reports, and Dashboard pages deep-link with `?type=` (and `?loanId=`). Audit events: `evidence_packet.generated | downloaded | deleted | failed`.
+
+### Limitations
+- Not a direct **SES** submission and not an official **NMLS** filing format.
+- Document **binaries are not bundled** — packets reference document metadata + download routes only (no ZIP/PDF in this MVP).
+- Retention follows the `EXPORTS` bucket lifecycle; soft-deleted packets remain in storage until the bucket policy reclaims them.
 
 ## Initial admin and invite-only onboarding
 
