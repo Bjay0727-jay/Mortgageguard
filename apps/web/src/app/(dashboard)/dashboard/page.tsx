@@ -10,6 +10,8 @@ import {
   PIPELINE_STAGES,
   REQUIRED_PROGRAM_SETUP,
   buildSetupChecklist,
+  setupStepsToChecklist,
+  type BackendSetupStatus,
   buildDashboardQuery,
   deriveTopActions,
   hasActionableWork,
@@ -80,6 +82,7 @@ function titleCase(stage: string) {
 export default function DashboardPage() {
   const { user } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [setupStatus, setSetupStatus] = useState<BackendSetupStatus | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<DashboardFilters>({});
@@ -94,11 +97,23 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, [filters]);
 
+  // Setup status is independent of the dashboard filters; fetch it separately
+  // and let the panel reflect real backend state.
+  const fetchSetup = useCallback(() => {
+    api.get<BackendSetupStatus>("/api/v1/setup/status").then(setSetupStatus).catch(() => setSetupStatus(null));
+  }, []);
+
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+  useEffect(() => {
+    fetchSetup();
+  }, [fetchSetup]);
 
+  // Prefer backend-computed setup state; fall back to the client heuristic so
+  // the panel still renders if the endpoint is unavailable.
   const setupItems = useMemo(() => {
+    if (setupStatus) return setupStepsToChecklist(setupStatus.steps);
     if (!data) return [];
     return buildSetupChecklist({
       totalLoans: data.examReadiness.totalLoans,
@@ -106,8 +121,10 @@ export default function DashboardPage() {
       programs: data.programs,
       user,
     });
-  }, [data, user]);
-  const setupProgress = getSetupProgress(setupItems);
+  }, [setupStatus, data, user]);
+  const setupProgress = setupStatus
+    ? { complete: setupStatus.progress.completed, total: setupStatus.progress.total, percent: setupStatus.progress.percent }
+    : getSetupProgress(setupItems);
 
   // Surface a hard error only when we have nothing to show; transient refetch
   // errors while data is on screen are non-blocking.
@@ -162,23 +179,22 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {(isDefaultAdmin(user) || shouldShowOnboarding) && (
+      {setupStatus && setupStatus.warnings.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-2">
-          {isDefaultAdmin(user) && (
-            <WarningCard
-              title="Default admin account detected"
-              description="Change this password before using production data."
-              href="/change-password"
-              cta="Change Password"
-            />
-          )}
-          <WarningCard
-            title="Texas compliance rules are not loaded yet"
-            description="Load or verify Texas rules so checklists, scores, and reporting deadlines can be generated accurately."
-            href="/company-settings?tab=rules"
-            cta="View Setup Instructions"
-          />
+          {setupStatus.warnings.map((w) => (
+            <WarningCard key={w.key} title={w.title} description={w.message} href={w.actionHref} cta={w.actionLabel} />
+          ))}
         </div>
+      ) : (
+        // Fallback while setup status hasn't loaded yet.
+        !setupStatus && (isDefaultAdmin(user) || shouldShowOnboarding) && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {isDefaultAdmin(user) && (
+              <WarningCard title="Default admin account detected" description="Change this password before using production data." href="/change-password" cta="Change Password" />
+            )}
+            <WarningCard title="Texas compliance rules are not loaded yet" description="Load or verify Texas rules so checklists, scores, and reporting deadlines can be generated accurately." href="/setup?step=rules" cta="Load Texas Rules" />
+          </div>
+        )
       )}
 
       {shouldShowOnboarding && <OnboardingPanel items={setupItems} />}

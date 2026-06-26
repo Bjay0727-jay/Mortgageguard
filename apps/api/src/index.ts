@@ -18,6 +18,8 @@ import { programRoutes } from "./routes/programs";
 import { reportRoutes } from "./routes/reports";
 import { integrationRoutes, integrationWebhookRoutes } from "./routes/integrations";
 import { regulatorySourceRoutes } from "./routes/regulatory-sources";
+import { setupRoutes } from "./routes/setup";
+import { companyRoutes } from "./routes/company";
 import { authRoutes } from "./routes/auth";
 import { userRoutes } from "./routes/users";
 import { processComplianceEvent } from "./services/compliance-engine";
@@ -78,6 +80,8 @@ app.route("/api/v1/regulatory-sources", regulatorySourceRoutes);
 app.route("/api/v1/reports", reportRoutes);
 app.route("/api/v1/integrations", integrationRoutes);
 app.route("/api/v1/users", userRoutes);
+app.route("/api/v1/setup", setupRoutes);
+app.route("/api/v1/company", companyRoutes);
 
 // ─── 404 Handler ───
 app.notFound((c) => c.json({ error: "Not found", path: c.req.path }, 404));
