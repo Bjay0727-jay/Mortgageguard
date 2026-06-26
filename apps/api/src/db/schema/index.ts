@@ -284,6 +284,23 @@ export const loanTimeline = pgTable("loan_timeline", {
   index("timeline_date_idx").on(t.occurredAt),
 ]);
 
+// ─── LOAN NOTES / CORRESPONDENCE (Prompt 21C) ───
+export const loanNotes = pgTable("loan_notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  loanId: uuid("loan_id").notNull().references(() => loans.id),
+  noteType: text("note_type").default("general").notNull(),
+  body: text("body").notNull(),
+  visibility: text("visibility").default("internal").notNull(),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("loan_notes_loan_idx").on(t.loanId),
+  index("loan_notes_company_idx").on(t.companyId),
+]);
+
 // ─── COMPLIANCE PROGRAMS ───
 // Company-level policies (AML, Red Flags, InfoSec, etc.)
 export const compliancePrograms = pgTable("compliance_programs", {

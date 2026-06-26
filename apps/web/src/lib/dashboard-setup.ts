@@ -237,7 +237,7 @@ export function deriveTopActions(data: TopActionsInput): TopAction[] {
       id: "upload-docs",
       title: "Upload missing documents",
       description: "Resolve required documents on loans below passing score.",
-      href: missingDocs.length === 1 ? `/loans/${missingDocs[0].id}` : "/loans?score=critical",
+      href: missingDocs.length === 1 ? `/loans/${missingDocs[0].id}?tab=checklist` : "/loans?score=critical",
       cta: "Upload Documents",
       count: missingDocs.length,
       priority: "High",

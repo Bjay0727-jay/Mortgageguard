@@ -243,6 +243,21 @@ New tables (`scripts/db-setup.sql`, idempotent): `reporting_obligations`, `repor
 
 > Not an official NMLS submission: trackers record filing **evidence** (confirmation numbers + receipts), not NMLS-format submissions.
 
+## Loan processing workspace (Prompt 21C)
+
+`/loans/:id` is a full processing workspace organized into eight tabs, with state preserved via `?tab=` (`overview | checklist | documents | tasks | transaction-log | stage-gate | notes | timeline`). All operational logic lives in the pure, tested helper `lib/loan-workspace.ts` — never hardcoded in React.
+
+- **Overview** — command-center cards (compliance score, integrity, missing documents, open/overdue tasks, transaction-log status, stage gate, closing date) plus prioritized next actions, blockers, and warnings from the loan integrity helper. Each next action deep-links to the resolving tab via `nextActionTab(...)`.
+- **Checklist** — the compliance work queue with search and filters (all / missing / required / uploaded / invalid / not-applicable / current-stage / federal / state). `checklistRowState` enforces that only `uploaded | signed | delivered` documents satisfy a row; `rejected | expired | deleted | superseded | failed | quarantined` never count.
+- **Documents** — every uploaded document (current and superseded) with status, uploader, date, download, and replace. Superseded/deleted documents stay visible for audit history.
+- **Tasks** — auto + manual work queue with filters (open / overdue / auto / manual / complete) and complete actions; auto-tasks carry an `auto_key` and de-duplicate.
+- **Transaction Log** — the 21 Texas transaction-log fields with present/missing indicators, the missing-field count that will surface as export warnings, and a link to the Reports export.
+- **Stage Gate** — current/next stage, gate preview/advance, and blockers vs warnings split (`splitGateReadiness`); invalid transitions are never overrideable.
+- **Notes / Correspondence** — lightweight company- and loan-scoped notes (`loan_notes`, soft-deleted) with types (general / borrower / lender / processor / compliance / condition) and visibility; create/update/delete are audited (`loan.note_created|updated|deleted`) and timelined.
+- **Timeline / Audit** — loan event history with category filters (documents / tasks / stage / notes / evidence-packets / audit), backed by `GET /loans/:id/timeline?type=`.
+
+Notes API: `GET|POST /api/v1/loans/:id/notes`, `PATCH|DELETE /api/v1/loans/:id/notes/:noteId` (cap `manageLoanNotes`). The workspace integrates **evidence packet** generation (Prompt 14, `?type=loan&loanId=`) and the **transaction-log export** (Prompt 13). Dashboard loan top-actions deep-link to the relevant tab (e.g. a single missing-docs loan → `/loans/:id?tab=checklist`).
+
 ## Examiner evidence packets (Prompt 14)
 
 Assembles loan / program / reporting / setup data into downloadable examiner-ready packets. Pure builders (`lib/evidence-packets.ts`) turn already-fetched data into a consistent `EvidencePacketPayload` (sections + warnings + blockers + summary + integrity hash); the route layer fetches inputs, renders, stores, and audits.
