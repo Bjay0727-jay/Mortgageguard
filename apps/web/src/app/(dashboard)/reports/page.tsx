@@ -4,6 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import { api, saveBlob } from "@/lib/api";
 import { useCapabilities } from "@/lib/capabilities";
 import { InsufficientPermission } from "@/components/insufficient-permission";
+import {
+  Badge,
+  Button,
+  Card,
+  Input,
+  Modal,
+  PageHeader,
+  Select,
+  Tabs,
+  Textarea,
+  useToast,
+  type BadgeVariant,
+  type ToastOptions,
+} from "@/components/ui";
 
 interface Deadline {
   id: string;
@@ -25,11 +39,11 @@ interface LoanOption {
   borrower_first_name: string;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  upcoming: "bg-blue-100 text-blue-800",
-  in_progress: "bg-amber-100 text-amber-800",
-  filed: "bg-green-100 text-green-800",
-  overdue: "bg-red-100 text-red-800",
+const STATUS_VARIANT: Record<string, BadgeVariant> = {
+  upcoming: "blue",
+  in_progress: "amber",
+  filed: "green",
+  overdue: "red",
 };
 const DEADLINE_STATUSES = ["upcoming", "in_progress", "filed", "overdue"];
 const STATE_OPTIONS = ["TX", "CA", "FL", "NY", "IL"];
@@ -41,6 +55,7 @@ export default function ReportsPage() {
   const [tab, setTab] = useState<"deadlines" | "txlog" | "evidence">("deadlines");
   const [error, setError] = useState("");
   const { can } = useCapabilities();
+  const { toast } = useToast();
 
   // Deadline filters
   const [fStatus, setFStatus] = useState("");
@@ -83,133 +98,128 @@ export default function ReportsPage() {
   if (!can("viewReports")) return <InsufficientPermission />;
 
   const tabs = [
-    { key: "deadlines" as const, label: "Reporting Deadlines" },
-    { key: "txlog" as const, label: `TX Transaction Log (${txLog.length})` },
-    { key: "evidence" as const, label: "Evidence Packet" },
+    { id: "deadlines", label: "Reporting Deadlines" },
+    { id: "txlog", label: `TX Transaction Log (${txLog.length})` },
+    { id: "evidence", label: "Evidence Packet" },
   ];
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      <PageHeader title="Reports" />
+      {error && <div role="alert" className="rounded-md bg-[var(--red-pl)] p-3 text-sm text-[var(--red)]">{error}</div>}
 
-      <div className="border-b border-gray-200">
-        <div className="flex gap-6">
-          {tabs.map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)} className={`border-b-2 px-1 pb-3 text-sm font-medium ${tab === t.key ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <Tabs tabs={tabs} value={tab} onChange={(t) => setTab(t as typeof tab)} aria-label="Report sections" />
 
       {tab === "deadlines" && (
         <div className="space-y-4">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-3">
+          <Card className="flex flex-wrap items-end gap-3">
             <FilterSelect label="Status" value={fStatus} onChange={setFStatus} options={DEADLINE_STATUSES} />
             <FilterSelect label="State" value={fState} onChange={setFState} options={STATE_OPTIONS} />
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Quarter</label>
-              <input value={fQuarter} onChange={(e) => setFQuarter(e.target.value)} placeholder="Q1-2026" className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/10" />
+            <div className="w-36">
+              <Input label="Quarter" value={fQuarter} onChange={(e) => setFQuarter(e.target.value)} placeholder="Q1-2026" />
             </div>
-            <label className="flex items-center gap-2 pb-2 text-sm text-gray-700">
-              <input type="checkbox" checked={fDueSoon} onChange={(e) => setFDueSoon(e.target.checked)} /> Due soon
+            <label className="flex items-center gap-2 pb-2.5 text-sm text-[var(--gray-700)]">
+              <input type="checkbox" checked={fDueSoon} onChange={(e) => setFDueSoon(e.target.checked)} className="accent-[var(--royal)]" /> Due soon
             </label>
             {(fStatus || fState || fQuarter || fDueSoon) && (
-              <button onClick={() => { setFStatus(""); setFState(""); setFQuarter(""); setFDueSoon(false); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Clear</button>
+              <Button variant="secondary" onClick={() => { setFStatus(""); setFState(""); setFQuarter(""); setFDueSoon(false); }}>Clear</Button>
             )}
-          </div>
+          </Card>
 
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <Card flush className="overflow-hidden">
+            <table className="min-w-full divide-y divide-[var(--gray-200)]">
+              <thead className="bg-[var(--gray-50)]">
                 <tr>
                   {["Report", "Quarter", "Due Date", "Status", "Confirmation #", "Action"].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">{h}</th>
+                    <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--gray-500)]">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-[var(--gray-100)]">
                 {deadlines.map((d) => (
-                  <tr key={d.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{d.report_type}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{d.quarter || "—"}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{d.due_date}</td>
+                  <tr key={d.id} className="hover:bg-[var(--gray-50)]">
+                    <td className="px-4 py-3 text-sm font-medium text-[var(--gray-900)]">{d.report_type}</td>
+                    <td className="px-4 py-3 text-sm text-[var(--gray-600)]">{d.quarter || "—"}</td>
+                    <td className="px-4 py-3 text-sm text-[var(--gray-600)]">{d.due_date}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[d.status] || "bg-gray-100 text-gray-600"}`}>{d.status}</span>
+                      <Badge variant={STATUS_VARIANT[d.status] || "gray"}>{d.status}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="px-4 py-3 text-sm text-[var(--gray-600)]">
                       {d.confirmation_number || "—"}
                       {d.evidence_file_path && (
-                        <a href="#" onClick={async (e) => { e.preventDefault(); try { saveBlob(await api.download(`/api/v1/reports/deadlines/${d.id}/evidence`), `filing-receipt-${d.id}`); } catch (err: any) { setError(err.message); } }} className="ml-2 text-xs font-semibold text-[#1B3A6B] hover:underline">Receipt</a>
+                        <a href="#" onClick={async (e) => { e.preventDefault(); try { saveBlob(await api.download(`/api/v1/reports/deadlines/${d.id}/evidence`), `filing-receipt-${d.id}`); } catch (err: any) { setError(err.message); } }} className="ml-2 text-xs font-semibold text-[var(--royal)] hover:underline">Receipt</a>
                       )}
                     </td>
                     <td className="px-4 py-3">
                       {can("manageReportDeadlines") && d.status !== "filed" && (
-                        <button onClick={() => setFiling(d)} className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">File Report</button>
+                        <Button variant="success" size="sm" onClick={() => setFiling(d)}>File Report</Button>
                       )}
                     </td>
                   </tr>
                 ))}
                 {deadlines.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">No deadlines match these filters.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-[var(--gray-500)]">No deadlines match these filters.</td></tr>
                 )}
               </tbody>
             </table>
-          </div>
+          </Card>
         </div>
       )}
 
       {tab === "txlog" && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            {can("exportReports") && <button onClick={downloadCsv} className="rounded-lg bg-[#1B3A6B] px-4 py-2 text-sm font-medium text-white hover:bg-[#2B5298]">Export CSV</button>}
+            {can("exportReports") && <Button onClick={downloadCsv}>Export CSV</Button>}
           </div>
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-            <table className="min-w-full divide-y divide-gray-200 text-xs">
-              <thead className="bg-gray-50">
+          <Card flush className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-[var(--gray-200)] text-xs">
+              <thead className="bg-[var(--gray-50)]">
                 <tr>
                   {["Loan #", "Borrower", "App Date", "Property", "Rate", "Purpose", "Product", "Status"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-medium tracking-wider text-gray-500 uppercase">{h}</th>
+                    <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-medium uppercase tracking-wider text-[var(--gray-500)]">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-[var(--gray-100)]">
                 {txLog.map((row, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">{row.loan_number}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-700">{row.borrower}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-600">{row.application_date}</td>
-                    <td className="max-w-[200px] truncate px-3 py-2 text-gray-600">{row.property}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-600">{row.interest_rate || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 capitalize text-gray-600">{row.loan_purpose}</td>
-                    <td className="whitespace-nowrap px-3 py-2 capitalize text-gray-600">{row.loan_product}</td>
-                    <td className="whitespace-nowrap px-3 py-2 capitalize text-gray-600">{row.status}</td>
+                  <tr key={i} className="hover:bg-[var(--gray-50)]">
+                    <td className="whitespace-nowrap px-3 py-2 font-medium text-[var(--gray-900)]">{row.loan_number}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-[var(--gray-700)]">{row.borrower}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-[var(--gray-600)]">{row.application_date}</td>
+                    <td className="max-w-[200px] truncate px-3 py-2 text-[var(--gray-600)]">{row.property}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-[var(--gray-600)]">{row.interest_rate || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 capitalize text-[var(--gray-600)]">{row.loan_purpose}</td>
+                    <td className="whitespace-nowrap px-3 py-2 capitalize text-[var(--gray-600)]">{row.loan_product}</td>
+                    <td className="whitespace-nowrap px-3 py-2 capitalize text-[var(--gray-600)]">{row.status}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </Card>
         </div>
       )}
 
-      {tab === "evidence" && <EvidencePacketTab loans={loans} canExport={can("exportReports")} onError={setError} />}
+      {tab === "evidence" && <EvidencePacketTab loans={loans} canExport={can("exportReports")} onError={setError} toast={toast} />}
 
-      {filing && <FilingModal deadline={filing} onClose={() => setFiling(null)} onFiled={() => { setFiling(null); loadDeadlines(); }} onError={setError} />}
+      {filing && (
+        <FilingModal
+          deadline={filing}
+          onClose={() => setFiling(null)}
+          onFiled={() => { const d = filing; setFiling(null); loadDeadlines(); toast({ variant: "success", title: "Report filed", description: `${d.report_type}${d.quarter ? ` · ${d.quarter}` : ""} recorded.` }); }}
+          onError={(m) => toast({ variant: "error", title: "Filing failed", description: m })}
+        />
+      )}
     </div>
   );
 }
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/10">
-        <option value="">All</option>
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </div>
+    <Select label={label} value={value} onChange={(e) => onChange(e.target.value)} className="w-auto">
+      <option value="">All</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </Select>
   );
 }
 
@@ -240,46 +250,37 @@ function FilingModal({ deadline, onClose, onFiled, onError }: { deadline: Deadli
     }
   }
 
-  const input = "mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/10";
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => e.target === e.currentTarget && !saving && onClose()}>
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-bold text-gray-900">File report</h2>
-        <p className="mt-1 text-sm text-gray-500">{deadline.report_type}{deadline.quarter ? ` · ${deadline.quarter}` : ""}</p>
-        <form onSubmit={submit} className="mt-4 space-y-3">
-          <div>
-            <label className="text-sm font-medium text-gray-700">Status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value)} className={input}>
-              {DEADLINE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Filed date</label>
-            <input type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} className={input} />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Confirmation / reference number</label>
-            <input value={confirmationNumber} onChange={(e) => setConfirmationNumber(e.target.value)} className={input} placeholder="e.g. NMLS-2026-Q1-00123" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={input} />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Filing receipt (PDF/image, optional)</label>
-            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} className="mt-1 w-full text-sm" />
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">{saving ? "Saving..." : "Save filing"}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <Modal
+      open
+      onClose={() => !saving && onClose()}
+      size="lg"
+      title="File report"
+      description={`${deadline.report_type}${deadline.quarter ? ` · ${deadline.quarter}` : ""}`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button variant="success" type="submit" form="filing-form" loading={saving}>{saving ? "Saving…" : "Save filing"}</Button>
+        </>
+      }
+    >
+      <form id="filing-form" onSubmit={submit} className="space-y-3">
+        <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+          {DEADLINE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </Select>
+        <Input label="Filed date" type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} />
+        <Input label="Confirmation / reference number" value={confirmationNumber} onChange={(e) => setConfirmationNumber(e.target.value)} placeholder="e.g. NMLS-2026-Q1-00123" />
+        <Textarea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--gray-700)]">Filing receipt (PDF/image, optional)</span>
+          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} className="w-full text-sm" />
+        </label>
+      </form>
+    </Modal>
   );
 }
 
-function EvidencePacketTab({ loans, canExport, onError }: { loans: LoanOption[]; canExport: boolean; onError: (m: string) => void }) {
+function EvidencePacketTab({ loans, canExport, onError, toast }: { loans: LoanOption[]; canExport: boolean; onError: (m: string) => void; toast: (o: ToastOptions) => number }) {
   const [mode, setMode] = useState<"loan" | "range">("loan");
   const [loanId, setLoanId] = useState("");
   const [from, setFrom] = useState("");
@@ -297,6 +298,7 @@ function EvidencePacketTab({ loans, canExport, onError }: { loans: LoanOption[];
       const res = await api.post<{ packet: any; artifactKey: string; generatedAt: string }>("/api/v1/reports/evidence-packet", body);
       setResult(res);
       saveBlob(new Blob([JSON.stringify(res.packet, null, 2)], { type: "application/json" }), `evidence-packet-${mode === "loan" ? loanId : "range"}.json`);
+      toast({ variant: "success", title: "Evidence packet generated", description: "Downloaded as JSON and archived to secure storage." });
     } catch (e: any) {
       onError(e.message || "Could not generate packet");
     } finally {
@@ -304,44 +306,40 @@ function EvidencePacketTab({ loans, canExport, onError }: { loans: LoanOption[];
     }
   }
 
-  const input = "mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/10";
   return (
-    <div className="max-w-xl space-y-4 rounded-xl border border-gray-200 bg-white p-5">
+    <Card className="max-w-xl space-y-4">
       <div>
-        <h2 className="text-lg font-bold text-[#1B3A6B]">Examiner evidence packet</h2>
-        <p className="mt-1 text-sm text-gray-500">Generate an exam-ready package: loan summary, compliance checklist, documents, score breakdown, timeline/audit trail, exceptions, and rule citations.</p>
+        <h2 className="text-lg font-bold text-[var(--royal)]">Examiner evidence packet</h2>
+        <p className="mt-1 text-sm text-[var(--gray-500)]">Generate an exam-ready package: loan summary, compliance checklist, documents, score breakdown, timeline/audit trail, exceptions, and rule citations.</p>
       </div>
       <div className="flex gap-2">
-        <button onClick={() => setMode("loan")} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${mode === "loan" ? "bg-[#1B3A6B] text-white" : "border border-gray-300 text-gray-700"}`}>Single loan</button>
-        <button onClick={() => setMode("range")} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${mode === "range" ? "bg-[#1B3A6B] text-white" : "border border-gray-300 text-gray-700"}`}>Date range</button>
+        <Button variant={mode === "loan" ? "primary" : "secondary"} size="sm" onClick={() => setMode("loan")}>Single loan</Button>
+        <Button variant={mode === "range" ? "primary" : "secondary"} size="sm" onClick={() => setMode("range")}>Date range</Button>
       </div>
 
       {mode === "loan" ? (
-        <div>
-          <label className="text-sm font-medium text-gray-700">Loan</label>
-          <select value={loanId} onChange={(e) => setLoanId(e.target.value)} className={input}>
-            <option value="">Select a loan…</option>
-            {loans.map((l) => <option key={l.id} value={l.id}>{l.loan_number} — {l.borrower_last_name}, {l.borrower_first_name}</option>)}
-          </select>
-        </div>
+        <Select label="Loan" value={loanId} onChange={(e) => setLoanId(e.target.value)}>
+          <option value="">Select a loan…</option>
+          {loans.map((l) => <option key={l.id} value={l.id}>{l.loan_number} — {l.borrower_last_name}, {l.borrower_first_name}</option>)}
+        </Select>
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="text-sm font-medium text-gray-700">From</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={input} /></div>
-          <div><label className="text-sm font-medium text-gray-700">To</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={input} /></div>
+          <Input label="From" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input label="To" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
       )}
 
-      <button onClick={generate} disabled={generating || (mode === "loan" && !loanId)} className="rounded-lg bg-[#0F7B46] px-4 py-2 text-sm font-semibold text-white hover:bg-[#15A35E] disabled:opacity-50">
+      <Button variant="success" onClick={generate} loading={generating} disabled={mode === "loan" && !loanId}>
         {generating ? "Generating…" : "Generate & download packet"}
-      </button>
+      </Button>
 
       {result && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+        <div className="rounded-lg border border-[var(--grn-pl)] bg-[var(--grn-pl)] p-3 text-sm text-[var(--grn)]">
           <p className="font-semibold">Packet generated.</p>
           <p className="mt-1 text-xs">Downloaded as JSON and archived to secure storage at <code className="break-all">{result.artifactKey}</code>.</p>
-          <button onClick={() => saveBlob(new Blob([JSON.stringify(result.packet, null, 2)], { type: "application/json" }), "evidence-packet.json")} className="mt-2 text-xs font-semibold text-[#1B3A6B] hover:underline">Download again</button>
+          <button onClick={() => saveBlob(new Blob([JSON.stringify(result.packet, null, 2)], { type: "application/json" }), "evidence-packet.json")} className="mt-2 text-xs font-semibold text-[var(--royal)] hover:underline">Download again</button>
         </div>
       )}
-    </div>
+    </Card>
   );
 }

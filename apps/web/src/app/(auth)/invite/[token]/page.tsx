@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { Button, Input, authGradient } from "@/components/ui";
 
 const ROLE_LABELS: Record<string, string> = {
   company_admin: "Company Admin",
@@ -74,52 +75,24 @@ export default function InviteAcceptPage() {
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    border: "1px solid #d1d5db",
-    borderRadius: 10,
-    padding: "10px 14px",
-    transition: "border-color .15s, box-shadow .15s",
-  };
-  function onFocus(e: React.FocusEvent<HTMLInputElement>) {
-    e.currentTarget.style.borderColor = "#1B3A6B";
-    e.currentTarget.style.boxShadow = "0 0 0 3px rgba(27,58,107,.12)";
-  }
-  function onBlur(e: React.FocusEvent<HTMLInputElement>) {
-    e.currentTarget.style.borderColor = "#d1d5db";
-    e.currentTarget.style.boxShadow = "none";
-  }
-
   return (
-    <div
-      className="flex min-h-screen items-center justify-center px-4 py-8"
-      style={{ background: "linear-gradient(135deg, #122B52 0%, #1B3A6B 40%, #2B5298 100%)" }}
-    >
-      <div
-        className="w-full"
-        style={{ maxWidth: 400, backgroundColor: "#fff", borderRadius: 18, padding: "44px 40px", boxShadow: "0 25px 50px -12px rgba(0,0,0,.25)" }}
-      >
+    <div className="flex min-h-screen items-center justify-center px-4 py-8" style={{ background: authGradient }}>
+      <div className="w-full max-w-[400px] rounded-[18px] bg-white px-10 py-11 shadow-[0_25px_50px_-12px_rgba(0,0,0,.25)]">
         <div className="mb-6 flex items-center justify-center gap-3">
-          <div
-            className="flex items-center justify-center font-bold text-white"
-            style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: "#0F7B46", fontSize: 16 }}
-          >
-            MG
-          </div>
-          <span className="text-xl font-bold" style={{ color: "#1B3A6B" }}>
-            MortgageGuard
-          </span>
+          <div className="flex h-[42px] w-[42px] items-center justify-center rounded-[10px] bg-[var(--grn)] text-base font-bold text-white">MG</div>
+          <span className="text-xl font-bold text-[var(--royal)]">MortgageGuard</span>
         </div>
 
-        {checking && <p className="text-center text-sm text-gray-400">Validating invitation…</p>}
+        {checking && <p className="text-center text-sm text-[var(--gray-400)]">Validating invitation…</p>}
 
         {!checking && loadError && (
           <div className="space-y-4 text-center">
-            <div className="text-sm" style={{ backgroundColor: "#FEF0EF", color: "#C4302B", borderRadius: 10, padding: "12px 14px" }}>
+            <div role="alert" className="rounded-[10px] bg-[var(--red-pl)] px-3.5 py-3 text-sm text-[var(--red)]">
               {loadError}
             </div>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-[var(--gray-500)]">
               Ask your company admin to send a new invitation, or{" "}
-              <a href="/login" className="font-medium" style={{ color: "#1B3A6B" }}>
+              <a href="/login" className="font-medium text-[var(--royal)]">
                 sign in
               </a>
               .
@@ -129,97 +102,58 @@ export default function InviteAcceptPage() {
 
         {!checking && invite && (
           <>
-            <p className="mb-1 text-center text-sm font-medium" style={{ color: "#1B3A6B" }}>
-              Join {invite.companyName}
-            </p>
-            <p className="mb-6 text-center text-xs text-gray-400">
+            <p className="mb-1 text-center text-sm font-medium text-[var(--royal)]">Join {invite.companyName}</p>
+            <p className="mb-6 text-center text-xs text-[var(--gray-400)]">
               {invite.email} · {ROLE_LABELS[invite.role] || invite.role}
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <div className="text-sm" style={{ backgroundColor: "#FEF0EF", color: "#C4302B", borderRadius: 10, padding: "10px 14px" }}>
+                <div role="alert" className="rounded-[10px] bg-[var(--red-pl)] px-3.5 py-2.5 text-sm text-[var(--red)]">
                   {error}
                 </div>
               )}
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  autoComplete="name"
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full text-sm outline-none"
-                  style={inputStyle}
-                  onFocus={onFocus}
-                  onBlur={onBlur}
-                />
-              </div>
+              <Input
+                type="text"
+                label="Full Name"
+                required
+                autoComplete="name"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              />
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
-                  Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  className="w-full text-sm outline-none"
-                  style={inputStyle}
-                  onFocus={onFocus}
-                  onBlur={onBlur}
-                  placeholder="Min 8 characters"
-                />
-              </div>
+              <Input
+                type="password"
+                label="Password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={form.password}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                placeholder="Min 8 characters"
+              />
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
-                  Confirm Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={form.confirm}
-                  onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
-                  className="w-full text-sm outline-none"
-                  style={inputStyle}
-                  onFocus={onFocus}
-                  onBlur={onBlur}
-                />
-              </div>
+              <Input
+                type="password"
+                label="Confirm Password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={form.confirm}
+                onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
+              />
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
-                  NMLS ID (optional)
-                </label>
-                <input
-                  type="text"
-                  value={form.nmlsId}
-                  onChange={(e) => setForm((f) => ({ ...f, nmlsId: e.target.value }))}
-                  className="w-full text-sm outline-none"
-                  style={inputStyle}
-                  onFocus={onFocus}
-                  onBlur={onBlur}
-                />
-              </div>
+              <Input
+                type="text"
+                label="NMLS ID (optional)"
+                value={form.nmlsId}
+                onChange={(e) => setForm((f) => ({ ...f, nmlsId: e.target.value }))}
+              />
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full font-semibold text-white disabled:opacity-50"
-                style={{ backgroundColor: "#1B3A6B", borderRadius: 10, padding: "12px 16px", fontSize: 14, cursor: submitting ? "not-allowed" : "pointer" }}
-              >
+              <Button type="submit" fullWidth loading={submitting}>
                 {submitting ? "Creating account…" : "Accept Invitation"}
-              </button>
+              </Button>
             </form>
           </>
         )}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { StatusBadge } from "@/components/status-badge";
+import { MetricCard } from "@/components/ui";
 import {
   PIPELINE_STAGES,
   REQUIRED_PROGRAM_SETUP,
@@ -397,19 +398,6 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[#1B3A6B]">{title}</h2>
       {children}
     </section>
-  );
-}
-
-function MetricCard({ label, value, color, bgColor, icon, href }: { label: string; value: string; color: string; bgColor: string; icon: string; href: string }) {
-  return (
-    <Link href={href} aria-label={`${label}: ${value}`} className="group block rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#1B3A6B]">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold" style={{ backgroundColor: bgColor, color }}>{icon}</div>
-      </div>
-      <p className="text-2xl font-bold" style={{ color }}>{value}</p>
-      <p className="mt-2 text-xs text-gray-400 group-hover:text-gray-600">Open details →</p>
-    </Link>
   );
 }
 

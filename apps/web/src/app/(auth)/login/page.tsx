@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { Button, Input, authGradient } from "@/components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,202 +30,76 @@ export default function LoginPage() {
   }
 
   return (
-    <div
-      className="flex min-h-screen items-center justify-center px-4"
-      style={{
-        background:
-          "linear-gradient(135deg, #122B52 0%, #1B3A6B 40%, #2B5298 100%)",
-      }}
-    >
-      <div
-        className="w-full"
-        style={{
-          maxWidth: 400,
-          backgroundColor: "#fff",
-          borderRadius: 18,
-          padding: "44px 40px",
-          boxShadow: "0 25px 50px -12px rgba(0,0,0,.25)",
-        }}
-      >
+    <div className="flex min-h-screen items-center justify-center px-4" style={{ background: authGradient }}>
+      <div className="w-full max-w-[400px] rounded-[18px] bg-white px-10 py-11 shadow-[0_25px_50px_-12px_rgba(0,0,0,.25)]">
         {/* Logo */}
         <div className="mb-2 flex items-center justify-center gap-3">
-          <div
-            className="flex items-center justify-center font-bold text-white"
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 10,
-              backgroundColor: "#0F7B46",
-              fontSize: 16,
-            }}
-          >
+          <div className="flex h-[42px] w-[42px] items-center justify-center rounded-[10px] bg-[var(--grn)] text-base font-bold text-white">
             MG
           </div>
-          <span
-            className="text-xl font-bold"
-            style={{ color: "#1B3A6B" }}
-          >
-            MortgageGuard
-          </span>
+          <span className="text-xl font-bold text-[var(--royal)]">MortgageGuard</span>
         </div>
-        <p className="mb-8 text-center text-sm text-gray-400">
-          Multi-state compliance CRM
-        </p>
+        <p className="mb-8 text-center text-sm text-[var(--gray-400)]">Multi-state compliance CRM</p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
-            <div
-              className="text-sm"
-              style={{
-                backgroundColor: "#FEF0EF",
-                color: "#C4302B",
-                borderRadius: 10,
-                padding: "10px 14px",
-              }}
-            >
+            <div role="alert" className="rounded-[10px] bg-[var(--red-pl)] px-3.5 py-2.5 text-sm text-[var(--red)]">
               {error}
             </div>
           )}
 
-          <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full text-sm outline-none"
-              style={{
-                border: "1px solid #d1d5db",
-                borderRadius: 10,
-                padding: "10px 14px",
-                transition: "border-color .15s, box-shadow .15s",
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = "#1B3A6B";
-                e.currentTarget.style.boxShadow =
-                  "0 0 0 3px rgba(27,58,107,.12)";
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = "#d1d5db";
-                e.currentTarget.style.boxShadow = "none";
-              }}
-              placeholder="you@company.com"
-            />
-          </div>
+          <Input
+            type="email"
+            label="Email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com"
+          />
 
-          <div>
-            <label
-              className="mb-1.5 block text-sm font-medium"
-              style={{ color: "#1B3A6B" }}
-            >
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full text-sm outline-none"
-              style={{
-                border: "1px solid #d1d5db",
-                borderRadius: 10,
-                padding: "10px 14px",
-                transition: "border-color .15s, box-shadow .15s",
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = "#1B3A6B";
-                e.currentTarget.style.boxShadow =
-                  "0 0 0 3px rgba(27,58,107,.12)";
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = "#d1d5db";
-                e.currentTarget.style.boxShadow = "none";
-              }}
-              placeholder="Min 8 characters"
-            />
-          </div>
+          <Input
+            type="password"
+            label="Password"
+            required
+            minLength={8}
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Min 8 characters"
+          />
 
           {/* Remember me + Forgot password */}
           <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-gray-600">
+            <label className="flex items-center gap-2 text-sm text-[var(--gray-600)]">
               <input
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="rounded"
-                style={{
-                  accentColor: "#1B3A6B",
-                  width: 16,
-                  height: 16,
-                }}
+                className="h-4 w-4 rounded accent-[var(--royal)]"
               />
               Remember me
             </label>
-            <Link
-              href="#"
-              className="text-sm font-medium"
-              style={{ color: "#2B5298" }}
-            >
+            <Link href="#" className="text-sm font-medium text-[var(--royal-lt)]">
               Forgot password?
             </Link>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full font-semibold text-white disabled:opacity-50"
-            style={{
-              backgroundColor: "#1B3A6B",
-              borderRadius: 10,
-              padding: "12px 16px",
-              fontSize: 14,
-              transition: "background-color .15s",
-              cursor: loading ? "not-allowed" : "pointer",
-            }}
-            onMouseEnter={(e) => {
-              if (!loading)
-                e.currentTarget.style.backgroundColor = "#2B5298";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "#1B3A6B";
-            }}
-          >
-            {loading ? "Signing in..." : "Sign In"}
-          </button>
+          <Button type="submit" fullWidth loading={loading}>
+            {loading ? "Signing in…" : "Sign In"}
+          </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-gray-500">
+        <p className="mt-6 text-center text-sm text-[var(--gray-500)]">
           Don&apos;t have an account?{" "}
-          <Link
-            href="/register"
-            className="font-medium"
-            style={{ color: "#1B3A6B" }}
-          >
+          <Link href="/register" className="font-medium text-[var(--royal)]">
             Register
           </Link>
         </p>
 
         {/* Encryption footer */}
-        <div className="mt-6 flex items-center justify-center gap-1.5 text-gray-400">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+        <div className="mt-6 flex items-center justify-center gap-1.5 text-[var(--gray-400)]">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0110 0v4" />
           </svg>

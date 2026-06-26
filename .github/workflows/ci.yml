@@ -32,6 +32,9 @@ jobs:
       - name: Test API
         run: cd apps/api && npx vitest run
 
+      - name: Test Web
+        run: cd apps/web && npx vitest run
+
       - name: Test Shared
         run: cd packages/shared && npx vitest run
 
