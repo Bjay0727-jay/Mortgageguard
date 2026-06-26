@@ -152,23 +152,64 @@ setupRoutes.get("/rules-status", requireCapability("viewSetupStatus"), async (c)
   return c.json(await gatherRulesStatus(sql, user.companyId, state));
 });
 
+// Only Texas has a rules catalog today; other states would seed nothing.
+const SUPPORTED_RULE_STATES = ["TX"];
+
 // ─── POST /api/v1/setup/load-rules ───
 setupRoutes.post("/load-rules", requireCapability("loadComplianceRules"), zValidator("json", z.object({ state: z.string().default("TX") })), async (c) => {
   const user = c.get("user");
-  const { state } = c.req.valid("json");
+  const state = (c.req.valid("json").state || "TX").toUpperCase();
+  // Unsupported state is a client error, never a 500.
+  if (!SUPPORTED_RULE_STATES.includes(state)) {
+    return c.json({ error: `Unsupported state '${state}'. Supported states: ${SUPPORTED_RULE_STATES.join(", ")}.` }, 400);
+  }
+
   const sql = db(c.env);
-  const status = await loadRules(sql, user.companyId, (state || "TX").toUpperCase());
-  await c.env.AUDIT_QUEUE.send({
-    type: "setup.rules_loaded",
-    entityType: "company",
-    entityId: user.companyId,
-    companyId: user.companyId,
-    userId: user.userId,
-    action: "load_compliance_rules",
-    details: { state, stateRulesCount: status.stateRulesCount, requiredDocumentsCount: status.requiredDocumentsCount },
-    ipAddress: c.req.header("cf-connecting-ip") || "unknown",
-    timestamp: new Date().toISOString(),
+
+  // Core rule seeding. If this genuinely fails (schema problem) we log the exact
+  // error server-side (visible in `wrangler tail`) and return a safe payload.
+  let status;
+  try {
+    status = await loadRules(sql, user.companyId, state);
+  } catch (e: any) {
+    console.error("[load-rules] rule seeding failed", { message: e?.message, state, companyId: user.companyId });
+    return c.json({ error: "Failed to load compliance rules. See server logs for details.", state }, 500);
+  }
+
+  // Audit + outbox are best-effort — a queue/binding failure must NOT fail the
+  // request now that the rules are persisted. (This was the production 500: an
+  // unwrapped AUDIT_QUEUE.send threw after the rules were already seeded.)
+  try {
+    await c.env.AUDIT_QUEUE?.send({
+      type: "setup.rules_loaded",
+      entityType: "company",
+      entityId: user.companyId,
+      companyId: user.companyId,
+      userId: user.userId,
+      action: "load_compliance_rules",
+      details: { state, stateRulesCount: status.stateRulesCount, requiredDocumentsCount: status.requiredDocumentsCount },
+      ipAddress: c.req.header("cf-connecting-ip") || "unknown",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    console.error("[load-rules] audit emit failed (non-fatal)", e?.message);
+  }
+  try {
+    await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "setup.rules_loaded", aggregateType: "company", aggregateId: user.companyId, idempotencyKey: `company:${user.companyId}:setup.rules_loaded:${state}:${status.stateRulesCount}`, payload: { state, stateRulesCount: status.stateRulesCount, requiredDocumentsCount: status.requiredDocumentsCount, actorUserId: user.userId } });
+  } catch (e: any) {
+    console.error("[load-rules] outbox emit failed (non-fatal)", e?.message);
+  }
+
+  // Spread `status` for backwards compatibility, plus a debug-friendly summary.
+  return c.json({
+    ...status,
+    state,
+    loaded: status.loaded,
+    counts: {
+      stateRules: status.stateRulesCount,
+      requiredDocuments: status.requiredDocumentsCount,
+      reportingObligations: status.reportingObligationsCount,
+    },
+    missing: status.blockers,
   });
-  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "setup.rules_loaded", aggregateType: "company", aggregateId: user.companyId, idempotencyKey: `company:${user.companyId}:setup.rules_loaded:${(state || "TX").toUpperCase()}:${status.stateRulesCount}`, payload: { state, stateRulesCount: status.stateRulesCount, requiredDocumentsCount: status.requiredDocumentsCount, actorUserId: user.userId } });
-  return c.json(status);
 });
