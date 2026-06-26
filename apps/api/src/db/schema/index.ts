@@ -35,6 +35,8 @@ export const companies = pgTable("companies", {
   primaryPhone: varchar("primary_phone", { length: 20 }),
   address: text("address"),
   isActive: boolean("is_active").default(true).notNull(),
+  // Drives the conditional Remote Work Policy program requirement.
+  allowsRemoteWork: boolean("allows_remote_work"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -251,11 +253,22 @@ export const compliancePrograms = pgTable("compliance_programs", {
   companyId: uuid("company_id").notNull().references(() => companies.id),
   programType: varchar("program_type", { length: 100 }).notNull(),
   programName: varchar("program_name", { length: 255 }).notNull(),
+  // Stable catalog key (e.g. "aml_program") linking the row to the source-backed catalog.
+  programKey: varchar("program_key", { length: 100 }),
+  category: varchar("category", { length: 100 }),
   isRequired: boolean("is_required").default(false).notNull(),
-  requiredBy: varchar("required_by", { length: 50 }), // "federal", "state"
+  isConditionallyRequired: boolean("is_conditionally_required").default(false),
+  // null = applicability unknown; true/false set explicitly (e.g. remote work).
+  applicable: boolean("applicable"),
+  archived: boolean("archived").default(false),
+  requiredBy: varchar("required_by", { length: 255 }), // citation or "federal"/"state"
+  requiredDocumentType: varchar("required_document_type", { length: 100 }),
+  requiredDocumentName: varchar("required_document_name", { length: 255 }),
+  reviewFrequencyMonths: integer("review_frequency_months").default(12),
   version: varchar("version", { length: 50 }),
   status: programStatusEnum("status").default("missing").notNull(),
   filePath: varchar("file_path", { length: 500 }), // R2 key
+  documentStatus: varchar("document_status", { length: 50 }),
   owner: varchar("owner", { length: 255 }),
   notes: text("notes"),
   lastReviewedAt: date("last_reviewed_at"),
@@ -264,6 +277,101 @@ export const compliancePrograms = pgTable("compliance_programs", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   index("programs_company_idx").on(t.companyId),
+  uniqueIndex("programs_company_key_idx").on(t.companyId, t.programKey),
+]);
+
+// ─── REGULATORY SOURCE REGISTRY (global catalog) ───
+export const regulatorySources = pgTable("regulatory_sources", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sourceKey: text("source_key").notNull().unique(),
+  title: text("title").notNull(),
+  citation: text("citation").notNull(),
+  jurisdiction: text("jurisdiction").notNull(),
+  agency: text("agency"),
+  sourceType: text("source_type").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  rulemakingCitation: text("rulemaking_citation"),
+  rulemakingUrl: text("rulemaking_url"),
+  guidanceUrl: text("guidance_url"),
+  effectiveDate: date("effective_date"),
+  lastVerifiedAt: timestamp("last_verified_at"),
+  nextVerificationDueAt: timestamp("next_verification_due_at"),
+  verificationStatus: text("verification_status").default("unverified").notNull(),
+  sourceHash: text("source_hash"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ─── PROGRAM ⇄ SOURCE LINKS (global catalog) ───
+export const complianceProgramSourceLinks = pgTable("compliance_program_source_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programKey: text("program_key").notNull(),
+  sourceKey: text("source_key").notNull().references(() => regulatorySources.sourceKey),
+  citation: text("citation").notNull(),
+  appliesTo: text("applies_to").default("program").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("program_source_link_idx").on(t.programKey, t.sourceKey),
+]);
+
+// ─── PROGRAM EVIDENCE REQUIREMENTS (global catalog) ───
+export const complianceProgramEvidenceRequirements = pgTable("compliance_program_evidence_requirements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programKey: text("program_key").notNull(),
+  evidenceKey: text("evidence_key").notNull(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  required: boolean("required").default(true).notNull(),
+  sourceKey: text("source_key").references(() => regulatorySources.sourceKey),
+  cadenceMonths: integer("cadence_months"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("program_evidence_req_idx").on(t.programKey, t.evidenceKey),
+]);
+
+// ─── PROGRAM EVIDENCE (company-uploaded/attested) ───
+export const complianceProgramEvidence = pgTable("compliance_program_evidence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  programId: uuid("program_id").notNull().references(() => compliancePrograms.id),
+  evidenceKey: text("evidence_key").notNull(),
+  status: text("status").default("uploaded").notNull(), // uploaded | accepted | not_applicable
+  filePath: text("file_path"),
+  fileName: varchar("file_name", { length: 255 }),
+  notes: text("notes"),
+  attestedBy: uuid("attested_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("program_evidence_idx").on(t.programId, t.evidenceKey),
+]);
+
+// ─── PROGRAM DOCUMENT REQUIREMENTS (global catalog) ───
+export const complianceProgramDocumentRequirements = pgTable("compliance_program_document_requirements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programKey: text("program_key").notNull(),
+  documentType: text("document_type").notNull(),
+  displayName: text("display_name").notNull(),
+  required: boolean("required").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("program_doc_req_idx").on(t.programKey, t.documentType),
+]);
+
+// ─── PROGRAM REVIEWS (review/attestation log) ───
+export const complianceProgramReviews = pgTable("compliance_program_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id),
+  programId: uuid("program_id").notNull().references(() => compliancePrograms.id),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at").defaultNow(),
+  nextReviewDue: date("next_review_due"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("program_reviews_program_idx").on(t.programId),
 ]);
 
 // ─── COMPLIANCE PROGRAM VERSIONS (upload history) ───
