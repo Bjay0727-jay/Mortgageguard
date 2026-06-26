@@ -44,4 +44,17 @@ describe("deriveTransactionLogCompleteness", () => {
     expect(r.status).toBe("overdue");
     expect(r.dueAt).toBeTruthy();
   });
+
+  it("flags overdue when the entry was made AFTER the 7-day deadline (late/back-dated)", () => {
+    // application 2026-06-01 → due 2026-06-08; entered 2026-06-15 (late)
+    const r = deriveTransactionLogCompleteness(complete({ transaction_log_entered_at: "2026-06-15" }), new Date("2026-06-16"));
+    expect(r.complete).toBe(true);
+    expect(r.status).toBe("overdue");
+    expect(r.warnings.join(" ")).toMatch(/7-day deadline/);
+  });
+
+  it("stays complete when entered within the 7-day window", () => {
+    const r = deriveTransactionLogCompleteness(complete({ transaction_log_entered_at: "2026-06-03" }), new Date("2026-06-20"));
+    expect(r.status).toBe("complete");
+  });
 });

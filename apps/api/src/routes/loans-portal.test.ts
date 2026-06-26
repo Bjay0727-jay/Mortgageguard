@@ -66,6 +66,14 @@ vi.mock("postgres", () => ({
       return state.loans.filter((l) => l.id === id && l.company_id === companyId).map((l) => ({ id: l.id }));
     }
 
+    // evaluateGate: rules-derived requirements + waived + loan/company for conditional gating
+    if (q.includes("FROM compliance_checks cc JOIN required_documents rd")) return [];
+    if (q.includes("required_document_id FROM compliance_checks WHERE loan_id = ? AND result IN ('waived', 'na')")) return [];
+    if (q.includes("SELECT property_state, loan_purpose, loan_product, loan_type, lien_position, texas_cashout_type, company_id FROM loans")) {
+      const l = state.loans[0];
+      return l ? [{ property_state: l.property_state, loan_purpose: l.loan_purpose, loan_product: l.loan_product, loan_type: l.loan_type, lien_position: l.lien_position, texas_cashout_type: l.texas_cashout_type, company_id: l.company_id }] : [];
+    }
+
     // compliance_checks
     if (q.includes("SELECT id, required_document_id, result FROM compliance_checks")) return state.checks;
     if (q.includes("INSERT INTO compliance_checks")) { state.checks.push({ id: `c-${state.checks.length + 1}`, required_document_id: values[2], result: "pending" }); return []; }
@@ -204,6 +212,19 @@ describe("wizard context + integrity", () => {
     const body = await res.json() as any;
     expect(["blocked", "critical", "needs_attention"]).toContain(body.integrity.status);
     expect(body.integrity.nextActions.some((a: any) => a.href === "/setup?step=rules")).toBe(true);
+  });
+});
+
+describe("stage gate enforces conditional documents", () => {
+  it("blocks advancing a TX 50(a)(6) loan to closing until its conditional closing docs are uploaded", async () => {
+    state.loans = [{ id: "loan-1", company_id: "company-1", status: "underwriting", property_state: "TX", loan_type: "fixed", loan_purpose: "refinance", loan_product: "conventional", lien_position: "first", texas_cashout_type: "tx_50a6" }];
+    state.docs = []; // nothing uploaded
+    const res = await app().request("/api/v1/loans/loan-1/gate/closing", { headers: await auth("company_admin") }, createMockEnv());
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.canAdvance).toBe(false);
+    const unsatisfiedTypes = (body.unsatisfied || []).map((u: any) => u.documentType);
+    expect(unsatisfiedTypes).toEqual(expect.arrayContaining(["tx_home_equity_disclosure", "tx_fair_market_value_ack"]));
   });
 });
 

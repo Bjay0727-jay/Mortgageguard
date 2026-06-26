@@ -79,14 +79,20 @@ export function deriveTransactionLogCompleteness(loan: TxLogLoan, now: Date = ne
     missingFields.push("closing_date");
   }
 
-  // 7-day entry expectation from the application date.
+  // 7-day entry expectation from the application date. A log is overdue if it
+  // was entered AFTER the deadline (late/back-dated import) or has not been
+  // entered yet and the deadline has already passed.
   let dueAt: string | null = null;
   let overdue = false;
   if (has(loan.application_date)) {
     const due = new Date(loan.application_date as string);
     due.setDate(due.getDate() + 7);
     dueAt = due.toISOString();
-    overdue = !has(loan.transaction_log_entered_at) && now.getTime() > due.getTime();
+    if (has(loan.transaction_log_entered_at)) {
+      overdue = new Date(loan.transaction_log_entered_at as string).getTime() > due.getTime();
+    } else {
+      overdue = now.getTime() > due.getTime();
+    }
   }
 
   const complete = missingFields.length === 0;
