@@ -96,7 +96,7 @@ export function deriveLoanIntegrity(input: LoanIntegrityInput): LoanIntegrity {
   const overdueTasks = input.tasks.filter((t) => ["open", "in_progress", "blocked"].includes(t.status) && t.due_at && new Date(t.due_at).getTime() < now.getTime());
   if (overdueTasks.length > 0) {
     warnings.push(`${overdueTasks.length} overdue task(s).`);
-    nextActions.push({ label: "Resolve overdue tasks", href: `${href}/tasks`, priority: "normal" });
+    nextActions.push({ label: "Resolve overdue tasks", href: `${href}?tab=tasks`, priority: "normal" });
   }
 
   // Closing approaching with missing closing-stage docs.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useCapabilities } from "@/lib/capabilities";
@@ -149,13 +149,17 @@ function formatBytes(bytes: number | null | undefined) {
 
 export default function LoanDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const [loan, setLoan] = useState<Loan | null>(null);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [integrity, setIntegrity] = useState<LoanIntegrity | null>(null);
   const [tasks, setTasks] = useState<LoanTask[]>([]);
-  const [tab, setTab] = useState<"details" | "checklist" | "tasks" | "timeline">("details");
+  const initialTab = (["details", "checklist", "tasks", "timeline"] as const).find(
+    (t) => t === searchParams.get("tab"),
+  ) ?? "details";
+  const [tab, setTab] = useState<"details" | "checklist" | "tasks" | "timeline">(initialTab);
   const [error, setError] = useState("");
   const [uploadItem, setUploadItem] = useState<ChecklistItem | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
