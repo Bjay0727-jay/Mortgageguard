@@ -9,6 +9,8 @@
     "db:migrate": "cd apps/api && drizzle-kit migrate",
     "db:seed": "cd apps/api && npx tsx src/db/seeds/index.ts",
     "db:validate": "npx tsx scripts/validate-schema-drift.ts",
+    "validate:cloudflare": "npx tsx scripts/validate-cloudflare-config.ts",
+    "smoke:production": "npx tsx scripts/smoke-production.ts",
     "test": "turbo test",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck"

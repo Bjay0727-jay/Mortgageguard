@@ -1,0 +1,63 @@
+name: Deploy Preview (manual)
+
+# ─────────────────────────────────────────────────────────────
+# OPTIONAL, SAFE preview deploy scaffold.
+#
+# Production deploys are handled by ci.yml on push to `main` (deploy-api +
+# deploy-web). This workflow does NOT run automatically and NEVER forces a
+# production deploy. By default it only builds the web app to validate that a
+# preview would succeed. A real Cloudflare preview upload runs ONLY when:
+#   • it is triggered manually (workflow_dispatch), AND
+#   • the `deploy` input is set to "true", AND
+#   • CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are configured.
+# Without those, the deploy step is skipped — no secrets, no deploy.
+# See docs/deployment.md for the full preview / production runbook.
+# ─────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Upload a Cloudflare preview version (requires secrets). Leave false to build-only."
+        required: false
+        default: "false"
+
+jobs:
+  preview:
+    name: Build (and optionally upload) preview
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Web (preview)
+        run: cd apps/web && pnpm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_API_URL: ${{ vars.API_URL || 'https://api.mortgageguard.example' }}
+
+      - name: Check for Cloudflare secrets
+        id: check-secrets
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ "${{ github.event.inputs.deploy }}" = "true" ]; then
+            echo "can_deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Preview build complete. Skipping upload (deploy input not 'true' or CLOUDFLARE_API_TOKEN not set)."
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Uploads a versioned preview WITHOUT promoting it to production traffic.
+      - name: Upload Web preview version
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        run: cd apps/web && npx opennextjs-cloudflare build && npx wrangler versions upload
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.API_URL || 'https://api.mortgageguard.example' }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

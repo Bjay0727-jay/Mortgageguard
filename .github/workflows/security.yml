@@ -1,0 +1,134 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# This workflow NEVER prints secret values. Scans report file paths and counts
+# only — matched content is intentionally not echoed to the logs.
+
+jobs:
+  # ─── Dependency vulnerability audit ───
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Advisories at "high" are surfaced but do not hard-block merges, because
+      # they often originate upstream and cannot be fixed in this repo. Critical
+      # advisories fail the job.
+      - name: pnpm audit (high — advisory)
+        continue-on-error: true
+        run: pnpm audit --audit-level=high
+
+      - name: pnpm audit (critical — blocking)
+        run: pnpm audit --audit-level=critical
+
+  # ─── Lightweight secret scan ───
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # High-confidence secret patterns. We use `grep -l` so only FILE PATHS are
+      # printed — never the matched secret content. Example/docs/fixtures are
+      # excluded because they intentionally contain placeholder credentials.
+      - name: Scan for hardcoded secrets
+        run: |
+          set -euo pipefail
+          PATTERNS='-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9A-Za-z]{16,}|whsec_[0-9A-Za-z]{16,}|re_[0-9A-Za-z]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|ghp_[0-9A-Za-z]{36}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'
+          MATCHES=$(grep -rElI -E -e "$PATTERNS" . \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude-dir=.next \
+            --exclude-dir=.open-next \
+            --exclude-dir=.turbo \
+            --exclude-dir=dist \
+            --exclude-dir=docs \
+            --exclude-dir=__fixtures__ \
+            --exclude='*.md' \
+            --exclude='*.example' \
+            --exclude='.env.example' \
+            --exclude='*.test.ts' \
+            --exclude='*.test.tsx' \
+            --exclude='*.spec.ts' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::Potential hardcoded secret(s) detected. Review the file(s) below (values intentionally not printed):"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "No hardcoded secrets detected."
+
+      # Reject plaintext credential assignments to known secret env vars in
+      # source (not examples). Only file paths are reported.
+      - name: No plaintext credentials
+        run: |
+          set -euo pipefail
+          # var = "literal" or var: "literal" with a non-placeholder value, in source files.
+          # Test fixtures (__tests__), comment lines, and "..." placeholders are
+          # excluded. Only file:line is reported — the value is never printed.
+          PATTERN='(JWT_SECRET|RESEND_API_KEY|DATABASE_URL|CLOUDFLARE_API_TOKEN|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET)[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"'$<{]{8,}'
+          HITS=$(grep -rnElI -E -e "$PATTERN" \
+            --include='*.ts' --include='*.tsx' --include='*.js' --include='*.mjs' --include='*.toml' \
+            . \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude-dir=.next \
+            --exclude-dir=.open-next \
+            --exclude-dir=__fixtures__ \
+            --exclude-dir=__tests__ \
+            --exclude='*.example' \
+            --exclude='.env.example' \
+            --exclude='*.test.ts' \
+            --exclude='*.test.tsx' || true)
+          REAL=""
+          for f in $HITS; do
+            # Re-scan the file line-by-line; drop comments and "..." placeholders.
+            while IFS= read -r ln; do
+              loc=${ln%%:*}
+              body=${ln#*:}
+              trimmed=$(printf '%s' "$body" | sed 's/^[[:space:]]*//')
+              case "$trimmed" in
+                //*|\#*|\**) continue ;;
+              esac
+              case "$body" in
+                *...*) continue ;;
+              esac
+              REAL="$REAL$f:$loc\n"
+            done < <(grep -nE -e "$PATTERN" "$f" | cut -d: -f1,2 || true)
+          done
+          if [ -n "$REAL" ]; then
+            echo "::error::Plaintext credential assignment found. Use Wrangler secrets / GitHub Actions secrets instead. Location(s) (value not printed):"
+            printf '%b' "$REAL"
+            exit 1
+          fi
+          echo "No plaintext credential assignments detected."
+
+  # ─── PBKDF2 / workerd guardrail ───
+  pbkdf2-guardrail:
+    name: PBKDF2 Guardrail
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce PBKDF2 iteration cap
+        run: |
+          ITER=$(grep -oE 'PBKDF2_ITERATIONS *= *[0-9]+' apps/api/src/lib/passwords.ts | grep -oE '[0-9]+$' | head -1)
+          if [ -z "$ITER" ]; then
+            echo "::error::Could not locate PBKDF2_ITERATIONS in apps/api/src/lib/passwords.ts"
+            exit 1
+          fi
+          if [ "$ITER" -gt 100000 ]; then
+            echo "::error::PBKDF2_ITERATIONS exceeds Cloudflare Workers workerd limit. Must be <= 100000."
+            exit 1
+          fi
+          echo "PBKDF2_ITERATIONS=$ITER (<= 100000) OK"

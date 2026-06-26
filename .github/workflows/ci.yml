@@ -39,8 +39,36 @@ jobs:
         run: cd packages/shared && npx vitest run
 
       # Fail the build on schema/capability/idempotency drift before deploy.
-      - name: Validate schema drift
+      # This also enforces idempotent setup SQL and that key schema objects
+      # (loan_notes, event_outbox, evidence_packets, reporting_deadlines,
+      # reporting_obligations, regulatory_sources, compliance_programs,
+      # required_documents, state_rules) exist in scripts/db-setup.sql.
+      - name: Validate schema drift (pnpm db:validate)
         run: cd apps/api && npx tsx ../../scripts/validate-schema-drift.ts
+
+      # ── PBKDF2 / workerd guardrail ──
+      # Cloudflare Workers (workerd) hard-caps PBKDF2 at 100000 iterations;
+      # anything higher 500s every login/register. Fail the build loudly so the
+      # OWASP-recommended 600000 can never be reintroduced on this platform.
+      - name: PBKDF2 iteration guardrail
+        run: |
+          ITER=$(grep -oE 'PBKDF2_ITERATIONS *= *[0-9]+' apps/api/src/lib/passwords.ts | grep -oE '[0-9]+$' | head -1)
+          if [ -z "$ITER" ]; then
+            echo "::error::Could not locate PBKDF2_ITERATIONS in apps/api/src/lib/passwords.ts"
+            exit 1
+          fi
+          if [ "$ITER" -gt 100000 ]; then
+            echo "::error::PBKDF2_ITERATIONS exceeds Cloudflare Workers workerd limit. Must be <= 100000."
+            exit 1
+          fi
+          echo "PBKDF2_ITERATIONS=$ITER (<= 100000) OK"
+
+      # Production Next.js build — fail CI on any build/type/route error before deploy.
+      - name: Build Web (production)
+        run: cd apps/web && pnpm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_API_URL: https://api.mortgageguard.example
 
   # ─── Database Migration (only on main push) ───
   migrate:
