@@ -4,9 +4,21 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { ScoreBadge } from "@/components/score-badge";
-import { StatusBadge } from "@/components/status-badge";
 import { useCapabilities } from "@/lib/capabilities";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Modal,
+  ScoreBadge,
+  StatusBadge,
+  Table,
+  Tabs,
+  Textarea,
+  useToast,
+  type Column,
+} from "@/components/ui";
 
 const ACCEPTED_MIME_TYPES = [
   "application/pdf",
@@ -111,12 +123,12 @@ function formatBytes(bytes: number | null | undefined) {
 
 export default function LoanDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { toast } = useToast();
   const [loan, setLoan] = useState<Loan | null>(null);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [tab, setTab] = useState<"details" | "checklist" | "timeline">("details");
   const [error, setError] = useState("");
-  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [uploadItem, setUploadItem] = useState<ChecklistItem | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadError, setUploadError] = useState("");
@@ -165,7 +177,7 @@ export default function LoanDetailPage() {
       const data = await api.get<GateReview>(`/api/v1/loans/${id}/gate/${targetStage}`);
       setGateReview(data);
     } catch (e: any) {
-      setToast({ type: "error", message: e.message || "Unable to load gate review" });
+      toast({ variant: "error", title: "Gate review failed", description: e.message || "Unable to load gate review" });
     } finally {
       setGateLoading(false);
     }
@@ -182,7 +194,11 @@ export default function LoanDetailPage() {
         reason: useOverride ? overrideReason : undefined,
       });
       await Promise.all([refreshLoan(), refreshTimeline(), refreshChecklist()]);
-      setToast({ type: "success", message: `Advanced to ${formatStage(gateReview.targetStage)}.` });
+      toast({
+        variant: useOverride ? "warning" : "success",
+        title: useOverride ? "Stage advanced (override)" : "Stage advanced",
+        description: `Advanced to ${formatStage(gateReview.targetStage)}.`,
+      });
       setGateReview(null);
       setOverrideReason("");
     } catch (e: any) {
@@ -196,6 +212,7 @@ export default function LoanDetailPage() {
     refreshLoan().catch((e) => setError(e.message));
     refreshChecklist().catch((e) => setError(e.message));
     refreshTimeline().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   function openUpload(item: ChecklistItem) {
@@ -236,12 +253,12 @@ export default function LoanDetailPage() {
       fd.append("documentType", uploadItem.documentType);
       await api.upload(`/api/v1/documents/upload/${id}`, fd);
       await refreshAfterUpload();
-      setToast({ type: "success", message: `${uploadItem.displayName} uploaded successfully.` });
+      toast({ variant: "success", title: "Document uploaded", description: `${uploadItem.displayName} uploaded successfully.` });
       closeUpload();
     } catch (e: any) {
       const message = e.message || "Upload failed";
       setUploadError(message);
-      setToast({ type: "error", message });
+      toast({ variant: "error", title: "Upload failed", description: message });
     } finally {
       setUploading(false);
     }
@@ -267,96 +284,113 @@ export default function LoanDetailPage() {
       a.remove();
       URL.revokeObjectURL(href);
     } catch (e: any) {
-      setToast({ type: "error", message: e.message || "Download failed" });
+      toast({ variant: "error", title: "Download failed", description: e.message || "Download failed" });
     } finally {
       setDownloadingDocId(null);
     }
   }
 
-  if (error) return <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">{error}</div>;
-  if (!loan) return <p className="text-gray-500">Loading...</p>;
+  if (error) return <div role="alert" className="rounded-md bg-[var(--red-pl)] p-4 text-sm text-[var(--red)]">{error}</div>;
+  if (!loan) return <p className="text-[var(--gray-500)]">Loading…</p>;
 
   const fmt = (n: string | number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(n));
 
   const tabs = [
-    { key: "details", label: "Loan Details" },
-    { key: "checklist", label: `Checklist (${checklist.filter((c) => c.uploaded).length}/${checklist.length})` },
-    { key: "timeline", label: "Timeline" },
-  ] as const;
+    { id: "details", label: "Loan Details" },
+    { id: "checklist", label: `Checklist (${checklist.filter((c) => c.uploaded).length}/${checklist.length})` },
+    { id: "timeline", label: "Timeline" },
+  ];
+
+  const checklistColumns: Column<ChecklistItem>[] = [
+    {
+      key: "displayName",
+      header: "Document",
+      render: (item) => (
+        <div>
+          <p className="font-medium text-[var(--gray-900)]">{item.displayName}</p>
+          <span className={item.isMandatory ? "text-xs text-[var(--red)]" : "text-xs text-[var(--gray-500)]"}>
+            {item.isMandatory ? "Required" : "Recommended"}
+          </span>
+        </div>
+      ),
+    },
+    { key: "source", header: "Source", render: (i) => <span className="capitalize">{i.source}</span>, hideOnMobile: true },
+    { key: "pipelineStage", header: "Stage", render: (i) => <span className="capitalize">{i.pipelineStage || "—"}</span>, hideOnMobile: true },
+    {
+      key: "status",
+      header: "Status",
+      render: (i) => <Badge variant={i.isSigned ? "blue" : i.uploaded ? "green" : "gray"}>{i.isSigned ? "Signed" : i.uploaded ? "Uploaded" : "Missing"}</Badge>,
+    },
+    {
+      key: "file",
+      header: "File",
+      hideOnMobile: true,
+      render: (i) =>
+        i.uploaded ? (
+          <div className="text-xs text-[var(--gray-600)]">
+            <p className="font-medium text-[var(--gray-900)]">{i.fileName}</p>
+            <p>{formatBytes(i.fileSize)}{i.uploadedAt ? ` · ${new Date(i.uploadedAt).toLocaleDateString()}` : ""}</p>
+          </div>
+        ) : "—",
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (item) => (
+        <div className="flex flex-wrap justify-end gap-2 md:justify-start">
+          {item.uploaded && (
+            <Button variant="secondary" size="sm" onClick={() => downloadDocument(item)} loading={downloadingDocId === item.documentId}>
+              {downloadingDocId === item.documentId ? "Downloading…" : "View / Download"}
+            </Button>
+          )}
+          {canUploadDocuments && (
+            <Button size="sm" onClick={() => openUpload(item)}>{item.uploaded ? "Replace" : "Upload"}</Button>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
-      {toast && (
-        <div className={`rounded-md p-3 text-sm ${toast.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-          <div className="flex items-center justify-between gap-3">
-            <span>{toast.message}</span>
-            <button onClick={() => setToast(null)} className="font-semibold">Dismiss</button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center gap-4">
-        <Link href="/loans" className="text-sm text-gray-500 hover:text-gray-700">
+      <div className="flex flex-wrap items-center gap-4">
+        <Link href="/loans" className="text-sm text-[var(--gray-500)] hover:text-[var(--gray-700)]">
           &larr; Loans
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900">{loan.loan_number}</h1>
+        <h1 className="text-2xl font-bold text-[var(--gray-900)]">{loan.loan_number}</h1>
         <StatusBadge status={loan.status} />
         <ScoreBadge score={loan.compliance_score} />
         <div className="ml-auto flex items-center gap-3">
-          <span className="text-sm text-gray-500">Current: <strong className="text-gray-800">{formatStage(loan.status)}</strong></span>
+          <span className="text-sm text-[var(--gray-500)]">Current: <strong className="text-[var(--gray-800)]">{formatStage(loan.status)}</strong></span>
           {can("advanceLoanStage") && nextStage && !isTerminalStage && (
-            <button
-              onClick={() => openGateReview(nextStage)}
-              disabled={gateLoading}
-              className="rounded-lg bg-[#1B3A6B] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {gateLoading ? "Checking Gate..." : `Advance to ${formatStage(nextStage)}`}
-            </button>
+            <Button onClick={() => openGateReview(nextStage)} loading={gateLoading}>
+              {gateLoading ? "Checking Gate…" : `Advance to ${formatStage(nextStage)}`}
+            </Button>
           )}
         </div>
       </div>
 
-      <div className="grid gap-4 rounded-xl border border-gray-200 bg-white p-5 sm:grid-cols-3">
+      <Card className="grid gap-4 sm:grid-cols-3">
         <div>
-          <p className="text-xs text-gray-500">Borrower</p>
-          <p className="text-sm font-medium text-gray-900">
-            {loan.borrower_last_name}, {loan.borrower_first_name}
-          </p>
+          <p className="text-xs text-[var(--gray-500)]">Borrower</p>
+          <p className="text-sm font-medium text-[var(--gray-900)]">{loan.borrower_last_name}, {loan.borrower_first_name}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Property</p>
-          <p className="text-sm font-medium text-gray-900">
-            {loan.property_address}, {loan.property_city}, {loan.property_state} {loan.property_zip}
-          </p>
+          <p className="text-xs text-[var(--gray-500)]">Property</p>
+          <p className="text-sm font-medium text-[var(--gray-900)]">{loan.property_address}, {loan.property_city}, {loan.property_state} {loan.property_zip}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Amount</p>
-          <p className="text-sm font-medium text-gray-900">{loan.loan_amount ? fmt(loan.loan_amount) : "—"}</p>
+          <p className="text-xs text-[var(--gray-500)]">Amount</p>
+          <p className="text-sm font-medium text-[var(--gray-900)]">{loan.loan_amount ? fmt(loan.loan_amount) : "—"}</p>
         </div>
-      </div>
+      </Card>
 
-      <div className="border-b border-gray-200">
-        <div className="flex gap-6">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`border-b-2 px-1 pb-3 text-sm font-medium ${
-                tab === t.key
-                  ? "border-blue-600 text-blue-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <Tabs tabs={tabs} value={tab} onChange={(t) => setTab(t as typeof tab)} aria-label="Loan sections" />
 
       {tab === "details" && (
-        <div className="grid gap-4 rounded-xl border border-gray-200 bg-white p-5 sm:grid-cols-3">
-          {[
+        <Card className="grid gap-4 sm:grid-cols-3">
+          {([
             ["Purpose", loan.loan_purpose],
             ["Product", loan.loan_product],
             ["Type", loan.loan_type],
@@ -369,91 +403,31 @@ export default function LoanDetailPage() {
             ["Originator", loan.originator_name || "—"],
             ["Docs", `${loan.docs_complete}/${loan.docs_required}`],
             ["Score", `${loan.compliance_score}%`],
-          ].map(([label, value]) => (
+          ] as [string, string][]).map(([label, value]) => (
             <div key={label}>
-              <p className="text-xs text-gray-500">{label}</p>
-              <p className="text-sm font-medium capitalize text-gray-900">{value}</p>
+              <p className="text-xs text-[var(--gray-500)]">{label}</p>
+              <p className="text-sm font-medium capitalize text-[var(--gray-900)]">{value}</p>
             </div>
           ))}
-        </div>
+        </Card>
       )}
 
       {tab === "checklist" && (
-        <div className="rounded-xl border border-gray-200 bg-white">
-          {checklist.length === 0 ? (
-            <div className="p-8 text-center">
-              <div className="mb-2 text-3xl">⏳</div>
-              <p className="text-sm font-medium text-gray-900">Checklist is being generated</p>
-              <p className="mt-1 text-sm text-gray-500">Refresh shortly to see required compliance documents.</p>
-            </div>
-          ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Document</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Source</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Stage</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">File</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {checklist.map((item) => {
-                  const statusLabel = item.isSigned ? "Signed" : item.uploaded ? "Uploaded" : "Missing";
-                  return (
-                    <tr key={item.documentType} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <p className="text-sm font-medium text-gray-900">{item.displayName}</p>
-                        <span className={`text-xs ${item.isMandatory ? "text-red-600" : "text-gray-500"}`}>
-                          {item.isMandatory ? "Required" : "Recommended"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm capitalize text-gray-600">{item.source}</td>
-                      <td className="px-4 py-3 text-sm capitalize text-gray-600">{item.pipelineStage || "—"}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          item.isSigned ? "bg-blue-100 text-blue-800" : item.uploaded ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"
-                        }`}>
-                          {statusLabel}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-600">
-                        {item.uploaded ? (
-                          <div>
-                            <p className="font-medium text-gray-900">{item.fileName}</p>
-                            <p>{formatBytes(item.fileSize)}{item.uploadedAt ? ` · ${new Date(item.uploadedAt).toLocaleDateString()}` : ""}</p>
-                          </div>
-                        ) : "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
-                          {item.uploaded && (
-                            <button
-                              onClick={() => downloadDocument(item)}
-                              disabled={downloadingDocId === item.documentId}
-                              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              {downloadingDocId === item.documentId ? "Downloading..." : "View / Download"}
-                            </button>
-                          )}
-                          {canUploadDocuments && (
-                            <button
-                              onClick={() => openUpload(item)}
-                              className="rounded-md bg-[#1B3A6B] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2B5298]"
-                            >
-                              {item.uploaded ? "Replace" : "Upload"}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <Card flush className="overflow-hidden">
+          <Table
+            columns={checklistColumns}
+            data={checklist}
+            rowKey={(i) => i.documentType}
+            caption="Compliance document checklist"
+            emptyState={
+              <EmptyState
+                icon={<span className="text-lg">⏳</span>}
+                title="Checklist is being generated"
+                description="Refresh shortly to see required compliance documents."
+              />
+            }
+          />
+        </Card>
       )}
 
       {tab === "timeline" && (
@@ -467,55 +441,62 @@ export default function LoanDetailPage() {
             }
             const isStageEvent = event.event_type === "stage_advanced" || event.event_type === "stage_override";
             return (
-              <div key={event.id} className={`flex gap-4 rounded-lg border bg-white px-4 py-3 ${isStageEvent ? "border-blue-200" : "border-gray-200"}`}>
-                <div className={`mt-1 h-3 w-3 flex-shrink-0 rounded-full ${event.event_type === "stage_override" ? "bg-amber-500" : isStageEvent ? "bg-blue-500" : "bg-gray-300"}`} />
+              <div key={event.id} className={`flex gap-4 rounded-lg border bg-white px-4 py-3 ${isStageEvent ? "border-[var(--royal-pl)]" : "border-[var(--gray-200)]"}`}>
+                <div className={`mt-1 h-3 w-3 flex-shrink-0 rounded-full ${event.event_type === "stage_override" ? "bg-[var(--amb)]" : isStageEvent ? "bg-[var(--royal-lt)]" : "bg-[var(--gray-300)]"}`} />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">{event.description || event.event_type}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-sm font-medium text-[var(--gray-900)]">{event.description || event.event_type}</p>
+                  <p className="text-xs text-[var(--gray-500)]">
                     {new Date(event.occurred_at).toLocaleString()}
                     {event.performed_by_name && ` by ${event.performed_by_name}`}
                   </p>
-                  {metadata?.reason && <p className="mt-1 text-xs text-amber-700">Override reason: {metadata.reason}</p>}
+                  {metadata?.reason && <p className="mt-1 text-xs text-[var(--amb)]">Override reason: {metadata.reason}</p>}
                 </div>
                 <div className="flex items-center gap-2">
                   {event.stage_from && <StatusBadge status={event.stage_from} />}
-                  {isStageEvent && <span className="text-xs text-gray-400">→</span>}
+                  {isStageEvent && <span className="text-xs text-[var(--gray-400)]">→</span>}
                   {event.stage_to && <StatusBadge status={event.stage_to} />}
                 </div>
               </div>
             );
           })}
-          {timeline.length === 0 && (
-            <p className="text-sm text-gray-500">No events yet.</p>
-          )}
+          {timeline.length === 0 && <p className="text-sm text-[var(--gray-500)]">No events yet.</p>}
         </div>
       )}
 
-      {gateReview && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40" onClick={(e) => e.target === e.currentTarget && !advanceLoading && setGateReview(null)}>
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Gate Review</h2>
-                <p className="mt-1 text-sm text-gray-600">
-                  {formatStage(gateReview.currentStage)} → {formatStage(gateReview.targetStage)}
-                </p>
-              </div>
-              <button onClick={() => setGateReview(null)} disabled={advanceLoading} className="text-2xl leading-none text-gray-400 hover:text-gray-600">&times;</button>
-            </div>
-
-            <div className={`mb-4 rounded-lg p-4 ${gateReview.canAdvance ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-900"}`}>
-              <p className="text-sm font-semibold">
-                {gateReview.satisfiedCount}/{gateReview.requiredCount} required documents satisfied
-              </p>
+      {/* Gate review modal */}
+      <Modal
+        open={!!gateReview}
+        onClose={() => !advanceLoading && setGateReview(null)}
+        size="xl"
+        title="Gate Review"
+        description={gateReview ? `${formatStage(gateReview.currentStage)} → ${formatStage(gateReview.targetStage)}` : undefined}
+        footer={
+          gateReview && (
+            <>
+              <Button variant="secondary" onClick={() => setGateReview(null)} disabled={advanceLoading}>Cancel</Button>
+              {!gateReview.canAdvance && canOverrideCompliance && (
+                <Button variant="danger" onClick={() => handleAdvanceStage(true)} loading={advanceLoading} disabled={!overrideReason.trim()} className="!bg-[var(--amb)]">
+                  {advanceLoading ? "Advancing…" : "Override with Reason"}
+                </Button>
+              )}
+              <Button onClick={() => handleAdvanceStage(false)} loading={advanceLoading} disabled={!gateReview.canAdvance}>
+                {advanceLoading ? "Advancing…" : `Advance to ${formatStage(gateReview.targetStage)}`}
+              </Button>
+            </>
+          )
+        }
+      >
+        {gateReview && (
+          <>
+            <div className={`mb-4 rounded-lg p-4 ${gateReview.canAdvance ? "bg-[var(--grn-pl)] text-[var(--grn)]" : "bg-[var(--amb-pl)] text-[var(--amb)]"}`}>
+              <p className="text-sm font-semibold">{gateReview.satisfiedCount}/{gateReview.requiredCount} required documents satisfied</p>
               <p className="mt-1 text-sm">
                 {gateReview.canAdvance ? "This loan is eligible to advance." : "Resolve the blockers below before advancing, or use an authorized override."}
               </p>
             </div>
 
-            {/* Blockers prevent advancement (unless overridden). Distinct from warnings. */}
             {(gateReview.blockers?.length ?? 0) > 0 && (
-              <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+              <div className="mb-4 rounded-lg bg-[var(--red-pl)] p-3 text-sm text-[var(--red)]">
                 <p className="font-semibold">Blockers</p>
                 <ul className="mt-1 list-disc pl-5">
                   {gateReview.blockers!.map((blocker) => <li key={blocker}>{blocker}</li>)}
@@ -523,9 +504,8 @@ export default function LoanDetailPage() {
               </div>
             )}
 
-            {/* Warnings are informational only and never block advancement. */}
             {gateReview.warnings.length > 0 && (
-              <div className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800">
+              <div className="mb-4 rounded-lg bg-[var(--amb-pl)] p-3 text-sm text-[var(--amb)]">
                 <p className="font-semibold">Warnings</p>
                 <ul className="mt-1 list-disc pl-5">
                   {gateReview.warnings.map((warning) => <li key={warning}>{warning}</li>)}
@@ -533,31 +513,26 @@ export default function LoanDetailPage() {
               </div>
             )}
 
-            <div className="mb-4 rounded-xl border border-gray-200">
-              <div className="border-b border-gray-200 px-4 py-3 text-sm font-semibold text-gray-900">Required documents</div>
+            <div className="mb-4 rounded-xl border border-[var(--gray-200)]">
+              <div className="border-b border-[var(--gray-200)] px-4 py-3 text-sm font-semibold text-[var(--gray-900)]">Required documents</div>
               {gateReview.unsatisfied.length === 0 ? (
-                <p className="px-4 py-5 text-sm text-green-700">All required documents for this gate are satisfied.</p>
+                <p className="px-4 py-5 text-sm text-[var(--grn)]">All required documents for this gate are satisfied.</p>
               ) : (
-                <div className="divide-y divide-gray-100">
+                <div className="divide-y divide-[var(--gray-100)]">
                   {gateReview.unsatisfied.map((doc) => {
                     const checklistItem = checklist.find((item) => item.documentType === doc.documentType);
                     return (
                       <div key={doc.documentType} className="flex items-center justify-between gap-4 px-4 py-3">
                         <div>
-                          <p className="text-sm font-medium text-gray-900">{doc.displayName}</p>
-                          <p className="text-xs text-red-600">
+                          <p className="text-sm font-medium text-[var(--gray-900)]">{doc.displayName}</p>
+                          <p className="text-xs text-[var(--red)]">
                             {checklistItem?.status && !["uploaded", "signed", "delivered"].includes(checklistItem.status)
                               ? `Uploaded but status "${checklistItem.status}" is not accepted`
                               : "Missing required document"}
                           </p>
                         </div>
                         {canUploadDocuments && checklistItem && (
-                          <button
-                            onClick={() => openUpload(checklistItem)}
-                            className="rounded-md bg-[#1B3A6B] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2B5298]"
-                          >
-                            Upload
-                          </button>
+                          <Button size="sm" onClick={() => openUpload(checklistItem)}>Upload</Button>
                         )}
                       </div>
                     );
@@ -566,89 +541,61 @@ export default function LoanDetailPage() {
               )}
             </div>
 
-            {advanceError && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{advanceError}</div>}
+            {advanceError && <div role="alert" className="mb-4 rounded-lg bg-[var(--red-pl)] p-3 text-sm text-[var(--red)]">{advanceError}</div>}
 
             {!gateReview.canAdvance && canOverrideCompliance && (
-              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                <label className="block text-sm font-semibold text-amber-900">Override reason</label>
-                <textarea
+              <div className="rounded-lg border border-[var(--amb-pl)] bg-[var(--amb-pl)] p-4">
+                <Textarea
+                  label="Override reason"
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
                   rows={3}
-                  className="mt-2 w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  placeholder="Explain why this compliance gate is being overridden..."
+                  placeholder="Explain why this compliance gate is being overridden…"
                 />
               </div>
             )}
+          </>
+        )}
+      </Modal>
 
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setGateReview(null)} disabled={advanceLoading} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50">Cancel</button>
-              {!gateReview.canAdvance && canOverrideCompliance && (
-                <button
-                  onClick={() => handleAdvanceStage(true)}
-                  disabled={advanceLoading || !overrideReason.trim()}
-                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {advanceLoading ? "Advancing..." : "Override with Reason"}
-                </button>
-              )}
-              <button
-                onClick={() => handleAdvanceStage(false)}
-                disabled={advanceLoading || !gateReview.canAdvance}
-                className="rounded-lg bg-[#1B3A6B] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {advanceLoading ? "Advancing..." : `Advance to ${formatStage(gateReview.targetStage)}`}
-              </button>
-            </div>
+      {/* Upload modal */}
+      <Modal
+        open={!!uploadItem}
+        onClose={closeUpload}
+        size="lg"
+        title={uploadItem?.uploaded ? "Replace document" : "Upload document"}
+        description={uploadItem?.displayName}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeUpload} disabled={uploading}>Cancel</Button>
+            <Button onClick={handleUpload} loading={uploading} disabled={!selectedFile}>
+              {uploading ? "Uploading…" : uploadItem?.uploaded ? "Replace document" : "Upload document"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg bg-[var(--gray-50)] p-3 text-sm text-[var(--gray-600)]">
+            Accepted file types: PDF, DOCX, PNG, JPG/JPEG. Maximum size: {formatBytes(MAX_UPLOAD_BYTES)}.
           </div>
-        </div>
-      )}
-
-      {uploadItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => e.target === e.currentTarget && closeUpload()}>
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">{uploadItem.uploaded ? "Replace document" : "Upload document"}</h2>
-                <p className="mt-1 text-sm text-gray-600">{uploadItem.displayName}</p>
-              </div>
-              <button onClick={closeUpload} disabled={uploading} className="text-2xl leading-none text-gray-400 hover:text-gray-600">&times;</button>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-[var(--gray-700)]">Select file</span>
+            <input
+              type="file"
+              accept={ACCEPTED_EXTENSIONS}
+              onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+              disabled={uploading}
+              className="block w-full rounded-lg border border-[var(--gray-300)] px-3 py-2 text-sm"
+            />
+          </label>
+          {selectedFile && (
+            <div className="rounded-lg border border-[var(--grn-pl)] bg-[var(--grn-pl)] p-3 text-sm text-[var(--grn)]">
+              Selected: <strong>{selectedFile.name}</strong> ({formatBytes(selectedFile.size)})
             </div>
-
-            <div className="space-y-4">
-              <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
-                Accepted file types: PDF, DOCX, PNG, JPG/JPEG. Maximum size: {formatBytes(MAX_UPLOAD_BYTES)}.
-              </div>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-gray-700">Select file</span>
-                <input
-                  type="file"
-                  accept={ACCEPTED_EXTENSIONS}
-                  onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
-                  disabled={uploading}
-                  className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                />
-              </label>
-              {selectedFile && (
-                <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-                  Selected: <strong>{selectedFile.name}</strong> ({formatBytes(selectedFile.size)})
-                </div>
-              )}
-              {uploadError && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{uploadError}</div>}
-              <div className="flex justify-end gap-3">
-                <button onClick={closeUpload} disabled={uploading} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50">Cancel</button>
-                <button
-                  onClick={handleUpload}
-                  disabled={!selectedFile || uploading}
-                  className="rounded-lg bg-[#1B3A6B] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {uploading ? "Uploading..." : uploadItem.uploaded ? "Replace document" : "Upload document"}
-                </button>
-              </div>
-            </div>
-          </div>
+          )}
+          {uploadError && <div role="alert" className="rounded-lg bg-[var(--red-pl)] p-3 text-sm text-[var(--red)]">{uploadError}</div>}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

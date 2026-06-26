@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ToastProvider } from "@/components/ui";
 
 export const metadata: Metadata = {
   title: "MortgageGuard — Compliance CRM",
@@ -27,7 +28,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-gray-50 text-gray-900 antialiased">
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

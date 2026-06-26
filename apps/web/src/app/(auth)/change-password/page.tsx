@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { Button, Input, authGradient } from "@/components/ui";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -42,47 +43,24 @@ export default function ChangePasswordPage() {
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    border: "1px solid #d1d5db",
-    borderRadius: 10,
-    padding: "10px 14px",
-    transition: "border-color .15s, box-shadow .15s",
-  };
-  function onFocus(e: React.FocusEvent<HTMLInputElement>) {
-    e.currentTarget.style.borderColor = "#1B3A6B";
-    e.currentTarget.style.boxShadow = "0 0 0 3px rgba(27,58,107,.12)";
-  }
-  function onBlur(e: React.FocusEvent<HTMLInputElement>) {
-    e.currentTarget.style.borderColor = "#d1d5db";
-    e.currentTarget.style.boxShadow = "none";
-  }
-
   if (loading || !user) return null;
 
   return (
     <div
       className="flex min-h-screen items-center justify-center px-4 py-8"
-      style={{ background: "linear-gradient(135deg, #122B52 0%, #1B3A6B 40%, #2B5298 100%)" }}
+      style={{ background: authGradient }}
     >
-      <div
-        className="w-full"
-        style={{ maxWidth: 400, backgroundColor: "#fff", borderRadius: 18, padding: "44px 40px", boxShadow: "0 25px 50px -12px rgba(0,0,0,.25)" }}
-      >
+      <div className="w-full max-w-[400px] rounded-[18px] bg-white px-10 py-11 shadow-[0_25px_50px_-12px_rgba(0,0,0,.25)]">
         <div className="mb-2 flex items-center justify-center gap-3">
-          <div
-            className="flex items-center justify-center font-bold text-white"
-            style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: "#0F7B46", fontSize: 16 }}
-          >
+          <div className="flex h-[42px] w-[42px] items-center justify-center rounded-[10px] bg-[var(--grn)] text-base font-bold text-white">
             MG
           </div>
-          <span className="text-xl font-bold" style={{ color: "#1B3A6B" }}>
-            MortgageGuard
-          </span>
+          <span className="text-xl font-bold text-[var(--royal)]">MortgageGuard</span>
         </div>
-        <p className="mb-2 text-center text-sm font-medium" style={{ color: "#1B3A6B" }}>
+        <p className="mb-2 text-center text-sm font-medium text-[var(--royal)]">
           {forced ? "Change default admin password" : "Change password"}
         </p>
-        <p className="mb-8 text-center text-xs text-gray-400">
+        <p className="mb-8 text-center text-xs text-[var(--gray-400)]">
           {forced
             ? "Default administrator credentials are for initial setup only. Set a new password before continuing."
             : "Update the password for your account."}
@@ -90,75 +68,46 @@ export default function ChangePasswordPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="text-sm" style={{ backgroundColor: "#FEF0EF", color: "#C4302B", borderRadius: 10, padding: "10px 14px" }}>
+            <div role="alert" className="rounded-[10px] bg-[var(--red-pl)] px-3.5 py-2.5 text-sm text-[var(--red)]">
               {error}
             </div>
           )}
 
           {!forced && (
-            <div>
-              <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
-                Current Password
-              </label>
-              <input
-                type="password"
-                required
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full text-sm outline-none"
-                style={inputStyle}
-                onFocus={onFocus}
-                onBlur={onBlur}
-              />
-            </div>
+            <Input
+              type="password"
+              label="Current Password"
+              required
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+            />
           )}
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
-              New Password
-            </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full text-sm outline-none"
-              style={inputStyle}
-              onFocus={onFocus}
-              onBlur={onBlur}
-              placeholder="Min 8 characters"
-            />
-          </div>
+          <Input
+            type="password"
+            label="New Password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Min 8 characters"
+          />
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium" style={{ color: "#1B3A6B" }}>
-              Confirm New Password
-            </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              className="w-full text-sm outline-none"
-              style={inputStyle}
-              onFocus={onFocus}
-              onBlur={onBlur}
-            />
-          </div>
+          <Input
+            type="password"
+            label="Confirm New Password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full font-semibold text-white disabled:opacity-50"
-            style={{ backgroundColor: "#1B3A6B", borderRadius: 10, padding: "12px 16px", fontSize: 14, cursor: submitting ? "not-allowed" : "pointer" }}
-          >
-            {submitting ? "Saving..." : "Update Password"}
-          </button>
+          <Button type="submit" fullWidth loading={submitting}>
+            {submitting ? "Saving…" : "Update Password"}
+          </Button>
         </form>
       </div>
     </div>
