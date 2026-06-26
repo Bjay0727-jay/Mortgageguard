@@ -94,6 +94,11 @@ export const CAPABILITIES = [
   "manageInvites",
   "overrideCompliance",
   "viewAuditTrail",
+  "viewOutbox",
+  "processOutbox",
+  "retryOutboxEvents",
+  "deadLetterOutboxEvents",
+  "viewAuditReliability",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
@@ -137,6 +142,11 @@ export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
     "syncIntegrations",
     "overrideCompliance",
     "viewAuditTrail",
+    "viewOutbox",
+    "processOutbox",
+    "retryOutboxEvents",
+    "deadLetterOutboxEvents",
+    "viewAuditReliability",
   ],
   loan_originator: [
     "viewDashboard",
@@ -205,6 +215,9 @@ export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
     "syncIntegrations",
     "overrideCompliance",
     "viewAuditTrail",
+    "viewOutbox",
+    "retryOutboxEvents",
+    "viewAuditReliability",
   ],
   read_only: [
     "viewDashboard",

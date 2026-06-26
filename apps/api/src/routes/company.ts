@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import postgres from "postgres";
 import type { Env } from "../env";
 import { requireCapability } from "../middleware/auth";
+import { tryCreateOutboxEvent } from "../lib/outbox";
 
 export const companyRoutes = new Hono<{ Bindings: Env }>();
 
@@ -85,5 +86,6 @@ companyRoutes.patch("/settings", requireCapability("manageCompanySettings"), zVa
     ipAddress: c.req.header("cf-connecting-ip") || "unknown",
     timestamp: new Date().toISOString(),
   });
+  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "company.settings_updated", aggregateType: "company", aggregateId: user.companyId, idempotencyKey: `company:${user.companyId}:settings_updated:${Date.now()}`, payload: { fields: Object.keys(body), actorUserId: user.userId } });
   return c.json({ company: serialize(row) });
 });

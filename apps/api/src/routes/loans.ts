@@ -13,6 +13,7 @@ import { hasCapability } from "@mortgageguard/shared";
 import { deriveConditionalDocuments } from "../lib/loan-conditional-docs";
 import { deriveTransactionLogCompleteness } from "../lib/transaction-log-integrity";
 import { deriveLoanIntegrity } from "../lib/loan-integrity";
+import { tryCreateOutboxEvent } from "../lib/outbox";
 import {
   LOAN_STAGES,
   type LoanStage,
@@ -294,6 +295,7 @@ loanRoutes.post("/", requireCapability("createLoan"), zValidator("json", createL
     INSERT INTO loan_timeline (loan_id, event_type, stage_to, description, performed_by)
     VALUES (${loan.id}, 'loan_created', 'application', 'Loan application created', ${user.userId})
   `;
+  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: "loan.created", aggregateType: "loan", aggregateId: loan.id, idempotencyKey: `loan:${loan.id}:loan.created`, payload: { loanNumber: body.loanNumber, state: body.propertyState, actorUserId: user.userId } });
 
   return c.json({ loan }, 201);
 });
@@ -484,6 +486,7 @@ loanRoutes.post("/:id/advance", requireCapability("advanceLoanStage"), zValidato
     ipAddress: c.req.header("cf-connecting-ip") || "unknown",
     timestamp: new Date().toISOString(),
   });
+  await tryCreateOutboxEvent(sql, { companyId: user.companyId, eventType: isOverride ? "loan.stage_override" : "loan.stage_advanced", aggregateType: "loan", aggregateId: loanId, idempotencyKey: `loan:${loanId}:stage:${previousStage}->${targetStage}:${Date.now()}`, payload: { from: previousStage, to: targetStage, override: isOverride, actorUserId: user.userId } });
 
   return c.json({ success: true, previousStage, newStage: targetStage, gate: readiness, override: isOverride });
 });
